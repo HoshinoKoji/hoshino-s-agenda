@@ -1,0 +1,20 @@
+{
+  "name": "@agenda/web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nuxt dev --host 0.0.0.0 --port 3000",
+    "generate": "nuxt generate",
+    "typecheck": "nuxt typecheck",
+    "postinstall": "nuxt prepare"
+  },
+  "dependencies": {
+    "nuxt": "^4.1.2",
+    "vue": "^3.5.21",
+    "vue-router": "^4.5.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2",
+    "vue-tsc": "^3.0.7"
+  }
+}

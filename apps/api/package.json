@@ -1,0 +1,21 @@
+{
+  "name": "@agenda/api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --port 8787",
+    "typecheck": "tsc --noEmit",
+    "build": "wrangler deploy --dry-run",
+    "deploy": "wrangler deploy",
+    "db:migrate": "wrangler d1 migrations apply agenda-db --local",
+    "db:migrate:remote": "wrangler d1 migrations apply agenda-db --remote"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250913.0",
+    "typescript": "^5.9.2",
+    "wrangler": "^4.38.0"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.2"
+  }
+}

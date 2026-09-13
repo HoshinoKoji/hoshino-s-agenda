@@ -1,0 +1,22 @@
+{
+  "name": "hoshinos-agenda",
+  "private": true,
+  "packageManager": "bun@1.3.14",
+  "workspaces": ["apps/*"],
+  "scripts": {
+    "dev": "bun run --parallel --filter '*' dev",
+    "db:migrate": "bun run --filter @agenda/api db:migrate",
+    "db:migrate:remote": "bun run --filter @agenda/api db:migrate:remote",
+    "typecheck": "bun run --filter '*' typecheck && bun run typecheck:tests",
+    "typecheck:tests": "tsc --project tsconfig.tests.json",
+    "build": "bun run --filter @agenda/web generate && bun run --filter @agenda/api build",
+    "test": "PLAYWRIGHT_BROWSERS_PATH=0 playwright test",
+    "test:install": "PLAYWRIGHT_BROWSERS_PATH=0 playwright install chromium",
+    "deploy:api": "bun run --filter @agenda/api deploy"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0",
+    "@types/node": "^26.5.1",
+    "typescript": "^5.9.2"
+  }
+}
