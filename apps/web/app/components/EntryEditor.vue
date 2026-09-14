@@ -43,13 +43,13 @@ async function remove() {
 </script>
 
 <template>
-  <AppDialog :title="entry ? '编辑事项' : '记录一点新进展'" :busy="busy" wide @close="emit('close')">
+  <AppDialog :title="entry ? '编辑事项' : '添加事项'" :busy="busy" wide @close="emit('close')">
     <form @submit.prevent="save">
       <fieldset :disabled="busy" class="form-fields">
         <label class="field">事项标题<input v-model="form.title" required maxlength="200" placeholder="今天，想推进哪件小事？" autofocus></label>
         <div class="field-row"><label class="field">所属项目<select v-model="form.projectId" required><option v-for="project in projects" :key="project.id" :value="project.id">{{ project.name }}</option></select></label><label class="field">记录日期<input v-model="form.date" type="date" required min="0001-01-01" max="9999-12-31"></label></div>
         <label class="checkbox-label completion-field"><input v-model="form.completed" type="checkbox"><span>已完成这件事项</span><AppIcon name="spark" :size="17" /></label>
-        <section class="reference-picker"><div class="section-label"><span><AppIcon name="link" :size="16" />引用事项</span><span class="muted">已选 {{ form.references.length }} / 50</span></div><p class="field-help">连接之前的进展，也可以引用其他项目的事项。</p>
+        <section class="reference-picker"><div class="section-label"><span><AppIcon name="link" :size="16" />引用事项</span><span class="muted">已选 {{ form.references.length }} / 50</span></div><p class="field-help">可引用其他项目或日期的事项。</p>
           <label class="search-field"><AppIcon name="search" :size="17" /><input v-model="query" aria-label="搜索引用事项" placeholder="搜索标题、项目或日期"></label>
           <div class="reference-options">
             <label v-for="candidate in candidates" :key="candidate.id" class="reference-option"><input v-model="form.references" type="checkbox" :value="candidate.id" :disabled="form.references.length >= 50 && !form.references.includes(candidate.id)"><span class="reference-option-text"><strong>{{ candidate.title }}</strong><small><i class="project-dot" :style="{ background: projectMap.get(candidate.projectId)?.color }" />{{ projectMap.get(candidate.projectId)?.name }}<span>·</span>{{ candidate.date }}</small></span></label>

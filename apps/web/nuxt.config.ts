@@ -12,7 +12,7 @@ export default defineNuxtConfig({
     head: {
       title: '日迹 · Hoshino’s Agenda',
       htmlAttrs: { lang: 'zh-CN' },
-      meta: [{ name: 'description', content: '以日历串联项目，让每一天的进展都有迹可循。' }],
+      meta: [{ name: 'description', content: '个人项目与事项日历。' }],
       link: [{ rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' }],
     },
   },
