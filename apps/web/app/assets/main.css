@@ -119,14 +119,17 @@ button { transition: background .15s, color .15s; }
 
 /* Calendar */
 .calendar-card { background: white; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
-.calendar-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 22px 24px; gap: 14px; }
+.calendar-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; padding: 22px 24px; gap: 14px; }
 .month-heading { display: flex; align-items: baseline; gap: 12px; }
 .month-heading h2 { font-size: 19px; font-weight: 600; white-space: nowrap; }
 .month-heading > span { font-size: 10px; color: #aaa3b1; }
-.calendar-controls { display: flex; align-items: center; gap: 14px; }
+.calendar-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
 .today-button { font-size: 11px; min-height: 30px; padding: 4px 13px; }
 .month-navigation { display: flex; gap: 4px; }
-.view-label { display: flex; align-items: center; gap: 14px; border-left: 1px solid var(--line); padding-left: 19px; font-size: 11px; color: #8e859a; }
+.view-switch { display: flex; gap: 3px; padding: 3px; background: #f6f4fa; border-radius: 8px; }
+.view-switch button { min-height: 32px; padding: 6px 11px; border-radius: 6px; font-size: 11px; white-space: nowrap; color: #8e859a; }
+.view-switch button[aria-pressed='true'] { background: white; color: var(--primary); box-shadow: 0 1px 4px #34264b12; }
+.day-date-input { min-width: 0; max-width: 100%; min-height: 32px; border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; color: #6a6575; background: white; font-size: 12px; }
 .filter-chip { display: flex; align-items: center; gap: 6px; font-size: 11px; background: #f7f5fa; padding-left: 9px; border-radius: 6px; max-width: 150px; }
 .calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
 .weekday { padding: 13px; background: #fcfbfd; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); font-size: 11px; color: #928b9c; text-align: center; }
@@ -189,6 +192,17 @@ button { transition: background .15s, color .15s; }
 .reference-chip { display: inline-flex; align-items: center; gap: 5px; background: #f6f3fb; color: #9c87b9; border-radius: 5px; padding: 4px 7px; font-size: 10px; max-width: 100%; overflow-wrap: anywhere; text-align: left; }
 .reference-chip:hover { background: #eae3f5; }
 .reference-chip.backlink { background: #f3f5f3; color: #8a9d8e; }
+/* The daily feed shares the same entry actions and reference targets as month details. */
+.day-view .day-panel { min-height: 360px; }
+.day-view .day-panel-heading { padding-bottom: 20px; border-bottom: 1px solid var(--line); }
+.day-view .entry-list { position: relative; display: grid; gap: 16px; padding: 4px 0 4px 25px; margin-top: 24px; }
+.day-view .entry-list::before { content: ''; position: absolute; top: 20px; bottom: 20px; left: 5px; width: 1px; background: #e5ddef; }
+.day-view .entry-card { position: relative; border: 1px solid var(--line); border-radius: 10px; padding: 20px; background: #fdfcfe; }
+.day-view .entry-card::before { content: ''; position: absolute; left: -25px; top: 25px; width: 9px; height: 9px; border: 2px solid white; border-radius: 50%; background: #b4a2cf; box-shadow: 0 0 0 1px #e5ddef; }
+.day-view .entry-completed { background: #fafcf9; }
+.day-view .entry-completed::before { background: #9eb4a3; }
+.day-view .entry-title { font-size: 14px; }
+.day-view .day-empty { padding-block: 50px; }
 .page-footer { display: flex; justify-content: space-between; gap: 12px; padding: 26px 0; color: #b9b1c1; font-size: 10px; }
 .page-footer > span:last-child { display: flex; align-items: center; gap: 8px; font-size: 8px; letter-spacing: 1px; }
 
@@ -254,7 +268,7 @@ input[type='checkbox'] { accent-color: var(--primary); width: 16px; height: 16px
   .topbar { padding-inline: 24px; }
   .summary-card { padding: 17px; gap: 11px; }
   .summary-caption { display: none; }
-  .month-heading > span, .view-label { display: none; }
+  .month-heading > span { display: none; }
   .calendar-controls { gap: 9px; }
 }
 @media (max-width: 900px) {
@@ -324,6 +338,9 @@ input[type='checkbox'] { accent-color: var(--primary); width: 16px; height: 16px
   .day-panel-heading .button { padding: 6px 8px; font-size: 10px; gap: 4px; }
   .day-empty { padding-inline: 0; }
   .entry-card { gap: 9px; }
+  .day-view .entry-card { padding: 14px 10px; }
+  .day-view .entry-title { font-size: 13px; }
+  .day-view .calendar-controls { gap: 8px; }
   .page-footer { font-size: 9px; padding: 22px 4px; }
   .page-footer > span:last-child { display: none; }
   .dialog-inner { padding: 22px 18px; }

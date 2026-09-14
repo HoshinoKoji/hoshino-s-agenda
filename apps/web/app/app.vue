@@ -6,6 +6,7 @@ const email = ref('')
 const hydrated = ref(false)
 const today = ref(dateKey(new Date()))
 const selected = ref(today.value)
+const view = ref<'month' | 'day'>('month')
 const month = ref(new Date(new Date().getFullYear(), new Date().getMonth(), 1, 12))
 const activeProject = ref('')
 const showAccount = ref(false)
@@ -72,6 +73,16 @@ function changeMonth(delta: number) {
   month.value = date
   selected.value = dateKey(date)
 }
+function changeDay(delta: number) {
+  const date = parseDate(selected.value)
+  date.setDate(date.getDate() + delta)
+  if (date.getFullYear() < 100 || date.getFullYear() > 9999) return
+  selectDate(dateKey(date))
+}
+function pickDate(event: Event) {
+  const input = event.target as HTMLInputElement
+  if (input.value && input.validity.valid) selectDate(input.value)
+}
 function addEntry(date = selected.value) {
   selectDate(date)
   if (!data.value.projects.length) { projectEditor.value = {}; return }
@@ -107,15 +118,30 @@ function followReference(entry: Entry | undefined) {
 
     <div class="main-shell">
       <header class="topbar"><div class="breadcrumb"><AppIcon name="grid" :size="16" /><span>我的工作台</span><span class="breadcrumb-slash">/</span><strong>项目日历</strong></div><button class="sync-button" :disabled="loading || saving" :title="syncedAt ? `上次同步：${syncedAt.toLocaleTimeString('zh-CN')}` : '从云端读取数据'" @click="refresh"><span class="status-dot" :class="{ 'status-error': error, 'status-busy': loading || saving }" /><span>{{ saving ? '正在保存' : loading ? '正在同步' : error ? '同步失败 · 重试' : syncedAt ? '已与云端同步' : '同步数据' }}</span><AppIcon name="refresh" :size="14" :class="{ spinning: loading }" /></button></header>
-      <main class="workspace">
+      <main class="workspace" :class="{ 'day-view': view === 'day' }">
         <section class="page-heading"><div><span class="eyebrow">YOUR DAYS, CONNECTED</span><h1>项目日历<span class="heading-spark">✳</span></h1><p>每一个小小的行动，都在让想法更近一步。</p></div><button class="button primary add-main" :disabled="loading || saving" @click="addEntry()"><AppIcon name="plus" :size="18" />添加事项</button></section>
         <div v-if="error" class="error-banner" role="alert"><span>{{ error }}</span><button class="text-button" :disabled="loading || saving" @click="refresh">重试</button></div>
         <section class="summary-row" aria-label="本月概览"><div class="summary-card"><span class="summary-icon lavender"><AppIcon name="calendar" :size="20" /></span><div><span class="summary-label">本月事项</span><strong>{{ monthEntries.length }}<small>项</small></strong></div><span class="summary-caption">一点一滴，积累成形</span></div><div class="summary-card"><span class="summary-icon sage"><AppIcon name="check" :size="21" /></span><div><span class="summary-label">已经完成</span><strong>{{ completedCount }}<small>项</small></strong></div><div class="mini-progress"><span>{{ completionRate }}%</span><div><i :style="{ width: `${completionRate}%` }" /></div></div></div><div class="summary-card"><span class="summary-icon peach"><AppIcon name="clock" :size="20" /></span><div><span class="summary-label">待推进</span><strong>{{ monthEntries.length - completedCount }}<small>项</small></strong></div><span class="summary-caption">按自己的节奏来</span></div></section>
 
         <section class="calendar-card" :aria-busy="loading">
-          <header class="calendar-toolbar"><div class="month-heading"><h2>{{ monthLabel }}</h2><span>{{ englishMonth }}</span></div><div class="calendar-controls"><span v-if="currentProject" class="filter-chip"><i class="project-dot" :style="{ background: currentProject.color }" /><span class="truncate">{{ currentProject.name }}</span><button class="icon-button" aria-label="清除项目筛选" @click="activeProject = ''"><AppIcon name="close" :size="13" /></button></span><button class="button today-button" @click="selectDate(today)">今天</button><div class="month-navigation"><button class="icon-button" aria-label="上个月" @click="changeMonth(-1)"><AppIcon name="chevronLeft" :size="18" /></button><button class="icon-button" aria-label="下个月" @click="changeMonth(1)"><AppIcon name="chevronRight" :size="18" /></button></div><span class="view-label">月视图<AppIcon name="calendar" :size="15" /></span></div></header>
-          <CalendarGrid :month="month" :selected="selected" :today="today" :entries="filteredEntries" :projects="data.projects" @select="selectDate" @edit="editEntry" @add="addEntry" />
-          <footer class="calendar-footer"><span><i class="legend-dot" />点击日期查看详情，点击事项进行编辑</span><span>{{ currentProject ? currentProject.name : '全部项目' }}<span class="footer-divider">·</span>周一为一周的开始</span></footer>
+          <header class="calendar-toolbar">
+            <div class="month-heading"><h2>{{ monthLabel }}</h2><span>{{ view === 'day' ? '一天的进展，慢慢展开' : englishMonth }}</span></div>
+            <div class="calendar-controls">
+              <span v-if="currentProject" class="filter-chip"><i class="project-dot" :style="{ background: currentProject.color }" /><span class="truncate">{{ currentProject.name }}</span><button class="icon-button" aria-label="清除项目筛选" @click="activeProject = ''"><AppIcon name="close" :size="13" /></button></span>
+              <input v-if="view === 'day'" class="day-date-input" type="date" aria-label="日视图日期" min="0100-01-01" max="9999-12-31" :value="selected" @change="pickDate">
+              <button class="button today-button" @click="selectDate(today)">今天</button>
+              <div class="month-navigation">
+                <button class="icon-button" :aria-label="view === 'day' ? '前一天' : '上个月'" @click="view === 'day' ? changeDay(-1) : changeMonth(-1)"><AppIcon name="chevronLeft" :size="18" /></button>
+                <button class="icon-button" :aria-label="view === 'day' ? '后一天' : '下个月'" @click="view === 'day' ? changeDay(1) : changeMonth(1)"><AppIcon name="chevronRight" :size="18" /></button>
+              </div>
+              <div class="view-switch" role="group" aria-label="日历视图">
+                <button :aria-pressed="view === 'month'" @click="view = 'month'">月视图</button>
+                <button :aria-pressed="view === 'day'" @click="view = 'day'">日视图</button>
+              </div>
+            </div>
+          </header>
+          <CalendarGrid v-if="view === 'month'" :month="month" :selected="selected" :today="today" :entries="filteredEntries" :projects="data.projects" @select="selectDate" @edit="editEntry" @add="addEntry" />
+          <footer v-if="view === 'month'" class="calendar-footer"><span><i class="legend-dot" />点击日期查看详情，点击事项进行编辑</span><span>{{ currentProject ? currentProject.name : '全部项目' }}<span class="footer-divider">·</span>周一为一周的开始</span></footer>
         </section>
 
         <section class="day-panel" aria-labelledby="day-title"><header class="day-panel-heading"><div class="day-title-group"><span class="day-icon"><AppIcon name="calendar" :size="20" /></span><div><h2 id="day-title">{{ formatDate(selected) }}<span v-if="selected === today" class="today-badge">今天</span></h2><p>{{ selectedEntries.length ? `${selectedEntries.length} 个事项，已完成 ${selectedCompleted} 个` : currentProject ? `「${currentProject.name}」在这一天还没有事项` : '留一点空间，记录这一天' }}</p></div></div><button class="button secondary" :disabled="loading || saving" @click="addEntry()"><AppIcon name="plus" :size="16" />添加事项</button></header>

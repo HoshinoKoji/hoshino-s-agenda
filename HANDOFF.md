@@ -12,6 +12,25 @@
 
 ## 验证记录
 
+### 本轮：流式日视图（2026-09-14）
+
+已编写：
+
+- `apps/web/app/app.vue` 增加月 / 日视图切换；日视图按所选日期纵向展示全部事项，提供前一天、后一天、日期选择与回到今天。切换视图保留日期和项目筛选，引用跳转继续支持跨项目、跨月定位。
+- `apps/web/app/assets/main.css` 增加纵向时间线与事项卡片、完成状态配色及手机布局；复用已有事项编辑、完成、引用和空状态逻辑。概览仍明确显示本月统计，默认打开月视图。
+- `tests/web.spec.ts` 增加日视图回归流程，覆盖视图切换、筛选、完成、编辑、新建、跨月引用、空日期、闰日及回到今天。
+
+已验证：
+
+- `bun run typecheck`、新增测试后的 `bun run typecheck:tests`、`git diff --check` 通过。
+- `NUXT_PUBLIC_API_BASE=http://127.0.0.1:8787 bun run build` 通过（前端静态生成与 Worker dry-run）。
+- 使用构建后的静态页面与真实本地 Wrangler/D1，全部 **10/10 测试通过**（API 4、桌面 3、手机 Chromium 模拟 3）。已查看两端 `day-view.png` 截图，无页面横向溢出。
+
+待完成 / 环境边界：
+
+- 常规 `bun run test` 启动开发服务器时遇到系统文件监听数上限 `ENOSPC`；`CHOKIDAR_USEPOLLING=1` 可绕过 Wrangler 监听，但 Nuxt CLI 原生监听仍失败。本轮在 `.wrangler/` 临时配置 Bun 静态服务替代 Nuxt dev，运行 `CHOKIDAR_USEPOLLING=1 bun run test --config=.wrangler/day-playwright.config.ts` 完成上述验证；临时脚本与配置已清理。开发模式需在系统监听资源恢复后复验。
+- 日视图当前为单日纵向事项流；视图选择不持久化，刷新回到默认月视图。Safari/Firefox 与实体手机尚未验证。
+
 ### 本轮：首次 Git 提交前敏感信息检查（2026-09-13）
 
 已编写：
