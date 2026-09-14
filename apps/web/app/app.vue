@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { zh_cn } from '@nuxt/ui/locale'
 import type { Entry, Project } from '../../../shared/types'
 import { dateKey, formatDate, parseDate } from '~/utils/dates'
 
@@ -78,10 +79,6 @@ function changeDay(delta: number) {
   if (date.getFullYear() < 100 || date.getFullYear() > 9999) return
   selectDate(dateKey(date))
 }
-function pickDate(event: Event) {
-  const input = event.target as HTMLInputElement
-  if (input.value && input.validity.valid) selectDate(input.value)
-}
 function addEntry(date = selected.value) {
   selectDate(date)
   if (!data.value.projects.length) { projectEditor.value = {}; return }
@@ -100,6 +97,7 @@ function followReference(entry: Entry | undefined) {
 </script>
 
 <template>
+  <UApp :locale="zh_cn">
   <div v-if="!hydrated" class="boot-screen"><span class="brand-mark"><AppIcon name="spark" :size="26" /></span><p>正在打开日历…</p></div>
 
   <main v-else-if="!email" class="welcome">
@@ -109,7 +107,7 @@ function followReference(entry: Entry | undefined) {
   <div v-else class="app-shell">
     <aside class="sidebar">
       <a class="brand" href="/" aria-label="日迹首页"><span class="brand-mark"><AppIcon name="spark" :size="24" /></span><span>日迹<span class="brand-en">HOSHINO’S AGENDA</span></span></a>
-      <nav class="project-nav" aria-label="项目筛选"><button class="nav-item all-projects" :class="{ active: !activeProject }" :aria-pressed="!activeProject" @click="activeProject = ''"><AppIcon name="calendar" :size="19" /><span>全部项目</span><span class="count">{{ data.entries.length }}</span></button><div class="nav-heading"><span>我的项目</span><button class="icon-button" aria-label="新建项目" :disabled="loading || saving" @click="projectEditor = {}"><AppIcon name="plus" :size="17" /></button></div><div class="project-list"><div v-for="project in data.projects" :key="project.id" class="project-nav-row" :class="{ active: activeProject === project.id }"><button class="nav-item" :aria-pressed="activeProject === project.id" @click="activeProject = project.id"><i class="project-dot" :style="{ background: project.color }" /><span class="truncate">{{ project.name }}</span><span class="count">{{ projectCounts.get(project.id) || 0 }}</span></button><button class="project-edit icon-button" :aria-label="`编辑项目 ${project.name}`" :disabled="saving || loading" @click="projectEditor = { project }"><AppIcon name="edit" :size="14" /></button></div><p v-if="!data.projects.length && !loading" class="sidebar-empty">暂无项目</p></div><button class="new-project" :disabled="loading || saving" @click="projectEditor = {}"><AppIcon name="plus" :size="16" />创建新项目</button></nav>
+      <nav class="project-nav" aria-label="项目筛选"><button class="nav-item all-projects" :class="{ active: !activeProject }" :aria-pressed="!activeProject" @click="activeProject = ''"><AppIcon name="calendar" :size="19" /><span>全部项目</span><span class="count">{{ data.entries.length }}</span></button><div class="nav-heading"><span>我的项目</span><button class="icon-button" aria-label="新建项目" :disabled="loading || saving" @click="projectEditor = {}"><AppIcon name="plus" :size="17" /></button></div><div class="project-list"><div v-for="project in data.projects" :key="project.id" class="project-nav-row" :class="{ active: activeProject === project.id }"><button class="nav-item" :aria-pressed="activeProject === project.id" @click="activeProject = project.id"><i class="project-dot" :style="{ background: project.color }" /><span class="truncate">{{ project.name }}</span><span class="count">{{ projectCounts.get(project.id) || 0 }}</span></button><button class="project-edit icon-button" :aria-label="`编辑项目 ${project.name}`" :disabled="saving || loading" @click="projectEditor = { project }"><AppIcon name="edit" :size="14" /></button></div><p v-if="!data.projects.length && !loading" class="sidebar-empty">暂无项目</p></div></nav>
       <div class="sidebar-bottom"><button class="account-button" :disabled="saving" @click="showAccount = true"><span class="avatar">{{ email[0]?.toUpperCase() }}</span><span class="account-label"><strong>我的空间</strong><small>{{ email }}</small></span><AppIcon name="chevronDown" :size="15" /></button></div>
     </aside>
 
@@ -125,7 +123,7 @@ function followReference(entry: Entry | undefined) {
             <div class="month-heading"><h2>{{ monthLabel }}</h2></div>
             <div class="calendar-controls">
               <span v-if="currentProject" class="filter-chip"><i class="project-dot" :style="{ background: currentProject.color }" /><span class="truncate">{{ currentProject.name }}</span><button class="icon-button" aria-label="清除项目筛选" @click="activeProject = ''"><AppIcon name="close" :size="13" /></button></span>
-              <input v-if="view === 'day'" class="day-date-input" type="date" aria-label="日视图日期" min="0100-01-01" max="9999-12-31" :value="selected" @change="pickDate">
+              <DatePicker v-if="view === 'day'" class="day-date-input" label="日视图日期" min="0100-01-01" :model-value="selected" @update:model-value="selectDate" />
               <button class="button today-button" @click="selectDate(today)">今天</button>
               <div class="month-navigation">
                 <button class="icon-button" :aria-label="view === 'day' ? '前一天' : '上个月'" @click="view === 'day' ? changeDay(-1) : changeMonth(-1)"><AppIcon name="chevronLeft" :size="18" /></button>
@@ -153,4 +151,5 @@ function followReference(entry: Entry | undefined) {
     <ProjectEditor v-if="projectEditor" :project="projectEditor.project" :entry-count="projectEditor.project ? projectCounts.get(projectEditor.project.id) || 0 : 0" :submit="saveProject" :remove="deleteProject" @close="projectEditor = null" />
     <EntryEditor v-if="entryEditor" :key="entryEditor.entry?.id || 'new'" :entry="entryEditor.entry" :date="entryEditor.date" :project-id="activeProject" :projects="data.projects" :entries="data.entries" :submit="saveEntry" :remove="deleteEntry" @close="entryEditor = null" />
   </div>
+  </UApp>
 </template>

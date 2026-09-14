@@ -4,6 +4,8 @@ export default defineNuxtConfig({
   compatibilityDate: '2025-09-13',
   ssr: false,
   devtools: { enabled: false },
+  modules: ['@nuxt/ui'],
+  ui: { colorMode: false, fonts: false },
   css: ['~/assets/main.css'],
   runtimeConfig: {
     public: { apiBase: process.env.NUXT_PUBLIC_API_BASE || 'http://localhost:8787' },

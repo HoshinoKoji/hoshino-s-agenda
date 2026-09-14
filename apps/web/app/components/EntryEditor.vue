@@ -47,7 +47,7 @@ async function remove() {
     <form @submit.prevent="save">
       <fieldset :disabled="busy" class="form-fields">
         <label class="field">事项标题<input v-model="form.title" required maxlength="200" placeholder="今天，想推进哪件小事？" autofocus></label>
-        <div class="field-row"><label class="field">所属项目<select v-model="form.projectId" required><option v-for="project in projects" :key="project.id" :value="project.id">{{ project.name }}</option></select></label><label class="field">记录日期<input v-model="form.date" type="date" required min="0001-01-01" max="9999-12-31"></label></div>
+        <div class="field-row"><label class="field">所属项目<select v-model="form.projectId" required><option v-for="project in projects" :key="project.id" :value="project.id">{{ project.name }}</option></select></label><div class="field"><span>记录日期</span><DatePicker v-model="form.date" label="记录日期" :disabled="busy" :portal="false" /></div></div>
         <label class="checkbox-label completion-field"><input v-model="form.completed" type="checkbox"><span>已完成这件事项</span><AppIcon name="spark" :size="17" /></label>
         <section class="reference-picker"><div class="section-label"><span><AppIcon name="link" :size="16" />引用事项</span><span class="muted">已选 {{ form.references.length }} / 50</span></div><p class="field-help">可引用其他项目或日期的事项。</p>
           <label class="search-field"><AppIcon name="search" :size="17" /><input v-model="query" aria-label="搜索引用事项" placeholder="搜索标题、项目或日期"></label>

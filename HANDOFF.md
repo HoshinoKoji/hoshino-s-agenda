@@ -12,6 +12,67 @@
 
 ## 验证记录
 
+### 本轮：滚动条避让弹窗圆角（2026-09-14）
+
+已编写：
+
+- `.dialog` 改为 `overflow: hidden` 的圆角外壳，上下保留 16px；滚动和滚动条样式移至 `.dialog-inner`，最大高度扣除外壳留白及边框。同步调整桌面/手机内边距以保持原内容间距，滚动条不会延伸至上下圆角区域。
+- 内层增加 `overscroll-behavior: contain`，避免滚动到边缘后传递给外层。
+
+已验证：
+
+- `bun run --filter @agenda/web generate`、`git diff --check` 通过。
+
+待完成 / 阻塞：
+
+- 桌面/手机主流程回归再次因 8787 已被占用而未启动，尚未复核长弹窗滚动及嵌套日期面板截图。
+
+### 本轮：弹窗滚动条样式（2026-09-14）
+
+已编写：
+
+- 按上下文将用户所说的弹窗「进度条」理解为滚动条；为 `.dialog` 和内部 `.reference-options` 添加细窄、淡紫色、透明轨道的滚动条样式，悬停加深。使用标准 scrollbar 属性并提供 WebKit 伪元素兼容样式。
+
+已验证：
+
+- `bun run --filter @agenda/web generate`、`git diff --check` 通过。
+
+待完成 / 边界：
+
+- 本轮为纯 CSS 修改，未执行浏览器交互测试或截图复核；滚动条具体宽度与显隐仍受浏览器和系统设置影响。
+
+### 本轮：精简侧栏新建项目入口（2026-09-14）
+
+已编写：
+
+- 移除侧栏重复的「创建新项目」按钮和相关样式，仅保留「我的项目」旁的加号。窄屏导航显示同一加号，隐藏标题文字；现有项目创建回归改用「新建项目」按钮。
+
+已验证：
+
+- `bun run typecheck`、`git diff --check` 通过。
+
+待完成 / 阻塞：
+
+- `bun run test --project=desktop --project=mobile -g '邮箱进入、项目和事项编辑'` 因 8787 端口已有服务而在启动阶段退出，尚未运行本轮浏览器回归；释放测试所需端口后可重跑。
+
+### 本轮：Nuxt UI 日期选择（2026-09-14）
+
+已编写：
+
+- 接入 `@nuxt/ui` 4.11.1、Tailwind CSS、`@internationalized/date` 与本地 Lucide 图标包；`UApp` 提供简体中文 locale，关闭自动字体下载与颜色模式，继续使用本机字体。
+- 新增 `apps/web/app/components/DatePicker.vue`，使用 `UPopover` + `UCalendar` 替换日视图、事项编辑中的原生日期输入；周一开始，支持月/年导航，选中后收起，保留各入口日期范围和 `YYYY-MM-DD` 无时区日期语义。
+- 事项弹窗内关闭 portal，避免日历落到原生 dialog 顶层之外；处理 Escape 默认行为，关闭日期面板时保留编辑弹窗。原有样式放入 components 层以兼容 Nuxt UI utilities，补齐 Tailwind reset 后 dialog 的居中与白底。
+- 更新浏览器回归：通过日历点击改变记录日期、跨年跨月选日期、闰日导航、Escape 嵌套弹层与手机无横向溢出。
+
+已验证：
+
+- `bun run typecheck` 通过；`bun run --filter @agenda/web generate` 通过，关闭 fonts 后再次构建确认无字体下载；`git diff --check` 通过。
+- 初轮完整测试 API **4/4 通过**；修正测试角色定位及 Escape 问题后，`bun run test --project=desktop --project=mobile` **6/6 通过**。已查看桌面与手机日期选择面板截图。
+
+待完成 / 边界：
+
+- 构建有主 JS chunk 超过 500 kB 的体积提示，不影响生成；Safari/Firefox、实体手机未验证。最终关闭自动 fonts 的配置已构建验证，浏览器回归截图生成于关闭前。
+
 ### 本轮：精简个人应用文案（2026-09-14）
 
 已编写：
