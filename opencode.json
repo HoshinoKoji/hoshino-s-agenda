@@ -9,6 +9,7 @@
       "*": "ask",
       "apps/*": "allow",
       "shared/*": "allow",
+      "tests/*": "allow",
     },
     "list": {
       "*": "allow",
