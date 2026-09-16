@@ -25,7 +25,7 @@ const days = computed(() => {
 <template>
   <div class="calendar-scroll">
     <div class="calendar-grid" role="group" aria-label="月日历">
-      <div v-for="(day, index) in weekdays" :key="day" class="weekday" :class="{ weekend: index > 4 }">周{{ day }}</div>
+      <div v-for="(day, index) in weekdays" :key="day" class="weekday" :class="{ weekend: index > 4 }">{{ day }}</div>
       <div v-for="day in days" :key="day.key" class="calendar-day" :class="{ 'other-month': !day.current, 'is-selected': day.key === selected, 'is-today': day.key === today, weekend: day.weekend }" :data-date="day.key">
         <button class="day-select" :aria-label="`选择 ${day.key}${day.key === today ? '，今天' : ''}`" :aria-pressed="day.key === selected" @click="emit('select', day.key)"><span class="day-number">{{ day.number }}</span><span v-if="day.key === today" class="today-label">今天</span><span v-if="day.entries.length" class="mobile-count">{{ day.entries.length }} 项</span></button>
         <button class="day-add" :aria-label="`在 ${day.key} 添加事项`" @click="emit('add', day.key)"><AppIcon name="plus" :size="14" /></button>

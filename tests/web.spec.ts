@@ -38,7 +38,7 @@ test('邮箱进入、项目和事项编辑、完成、双向引用跳转与删�
   await page.getByRole('textbox', { name: '邮箱地址' }).fill(space.email.toUpperCase())
   await page.getByRole('button', { name: '进入我的日历' }).click()
   await expect(page.locator('.sync-button')).toContainText('已与云端同步')
-  await expect(page.getByRole('heading', { name: '暂无项目', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '(空)', exact: true })).toBeVisible()
 
   for (const [name, color] of [['个人网站', '颜色 1'], ['阅读计划', '颜色 2']] as const) {
     await page.getByRole('button', { name: '新建项目', exact: true }).click()
@@ -154,8 +154,8 @@ test('流式日视图支持日期导航、筛选、编辑和跨月引用', async
   await space.entry(project.id, '今天的进展', '2026-09-13', [target])
   await space.entry(other.id, '另一项目事项', '2026-09-13')
   await enter(page, space.email)
-  await page.getByRole('button', { name: '日视图', exact: true }).click()
-  await expect(page.getByRole('button', { name: '日视图', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await page.getByRole('button', { name: '日', exact: true }).click()
+  await expect(page.getByRole('button', { name: '日', exact: true })).toHaveAttribute('aria-pressed', 'true')
   await expect(page.getByRole('group', { name: '月日历' })).toHaveCount(0)
   await expect(page.locator('.entry-card')).toHaveCount(2)
   await page.getByRole('navigation', { name: '项目筛选' }).getByRole('button', { name: /^日视图项目/ }).click()
@@ -192,7 +192,7 @@ test('流式日视图支持日期导航、筛选、编辑和跨月引用', async
   await expect(page.getByLabel('日视图日期')).toHaveText('2026-09-13')
   await noOverflow(page)
   await page.screenshot({ path: testInfo.outputPath('day-view.png'), fullPage: true, animations: 'disabled' })
-  await page.getByRole('button', { name: '月视图', exact: true }).click()
+  await page.getByRole('button', { name: '月', exact: true }).click()
   await expect(page.locator('[data-date="2026-09-13"]')).toHaveClass(/is-selected/)
   await expect(page.locator('.entry-card')).toHaveCount(2)
 })
