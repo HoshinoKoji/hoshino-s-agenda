@@ -38,7 +38,6 @@ const filteredEntries = computed(() => data.value.entries.filter(entry => !activ
 const monthPrefix = computed(() => dateKey(month.value).slice(0, 7))
 const monthEntries = computed(() => filteredEntries.value.filter(entry => entry.date.startsWith(monthPrefix.value)))
 const completedCount = computed(() => monthEntries.value.filter(entry => entry.completed).length)
-const completionRate = computed(() => monthEntries.value.length ? Math.round(completedCount.value / monthEntries.value.length * 100) : 0)
 const selectedEntries = computed(() => filteredEntries.value.filter(entry => entry.date === selected.value))
 const selectedCompleted = computed(() => selectedEntries.value.filter(entry => entry.completed).length)
 const monthLabel = computed(() => month.value.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long' }))
@@ -114,9 +113,8 @@ function followReference(entry: Entry | undefined) {
     <div class="main-shell">
       <header class="topbar"><div class="breadcrumb"><AppIcon name="grid" :size="16" /><span>我的工作台</span><span class="breadcrumb-slash">/</span><strong>项目日历</strong></div><button class="sync-button" :disabled="loading || saving" :title="syncedAt ? `上次同步：${syncedAt.toLocaleTimeString('zh-CN')}` : '从云端读取数据'" @click="refresh"><span class="status-dot" :class="{ 'status-error': error, 'status-busy': loading || saving }" /><span>{{ saving ? '正在保存' : loading ? '正在同步' : error ? '同步失败 · 重试' : syncedAt ? '已与云端同步' : '同步数据' }}</span><AppIcon name="refresh" :size="14" :class="{ spinning: loading }" /></button></header>
       <main class="workspace" :class="{ 'day-view': view === 'day' }">
-        <section class="page-heading"><h1>项目日历</h1><button class="button primary add-main" :disabled="loading || saving" @click="addEntry()"><AppIcon name="plus" :size="18" />添加事项</button></section>
         <div v-if="error" class="error-banner" role="alert"><span>{{ error }}</span><button class="text-button" :disabled="loading || saving" @click="refresh">重试</button></div>
-        <section class="summary-row" aria-label="本月概览"><div class="summary-card"><span class="summary-icon lavender"><AppIcon name="calendar" :size="20" /></span><div><span class="summary-label">本月事项</span><strong>{{ monthEntries.length }}<small>项</small></strong></div></div><div class="summary-card"><span class="summary-icon sage"><AppIcon name="check" :size="21" /></span><div><span class="summary-label">已经完成</span><strong>{{ completedCount }}<small>项</small></strong></div><div class="mini-progress"><span>{{ completionRate }}%</span><div><i :style="{ width: `${completionRate}%` }" /></div></div></div><div class="summary-card"><span class="summary-icon peach"><AppIcon name="clock" :size="20" /></span><div><span class="summary-label">未完成</span><strong>{{ monthEntries.length - completedCount }}<small>项</small></strong></div></div></section>
+        <section class="summary-row" aria-label="本月概览"><div class="summary-counts"><span>总数 <strong>{{ monthEntries.length }}</strong></span><span class="summary-divider" aria-hidden="true">/</span><span>未完成 <strong>{{ monthEntries.length - completedCount }}</strong></span></div><button class="button primary add-main" :disabled="loading || saving" @click="addEntry()"><AppIcon name="plus" :size="18" />添加事项</button></section>
 
         <section class="calendar-card" :aria-busy="loading">
           <header class="calendar-toolbar">
