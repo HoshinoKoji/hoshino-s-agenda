@@ -197,7 +197,12 @@ export default {
     const origin = request.headers.get('Origin')
     const allowed = (env.ALLOWED_ORIGINS || '').split(',').map(value => value.trim()).filter(Boolean)
     const headers = new Headers({ 'Vary': 'Origin', 'Cache-Control': 'no-store' })
-    if (origin && !allowed.includes(origin)) return json({ error: '此站点来源未被允许' }, 403)
+    const matchesOrigin = allowed.some(pattern => {
+      // Only * is special; anchor the escaped pattern to the entire origin.
+      const source = pattern.split('*').map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*')
+      return new RegExp(`^${source}$`).test(origin || '')
+    })
+    if (origin && !matchesOrigin) return json({ error: '此站点来源未被允许' }, 403)
     if (origin) headers.set('Access-Control-Allow-Origin', origin)
     headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS')
     headers.set('Access-Control-Allow-Headers', 'Content-Type, X-User-Email')

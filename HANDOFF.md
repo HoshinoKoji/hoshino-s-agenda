@@ -1,5 +1,21 @@
 # 项目交接
 
+## 本轮：ALLOWED_ORIGINS 通配符（2026-09-16）
+
+已编写：
+
+- API 的来源列表支持 `*` 匹配零个或多个任意字符；其他正则特殊字符转义为字面量，匹配整个 Origin。兼容逗号分隔、去除空格和精确来源；匹配后仍返回实际 Origin 及 `Vary: Origin`。
+- `apps/api/wrangler.jsonc` 增加配置注释，README 补充子域名、端口、全部来源和混合模式示例。提交前用户已将来源设为 `*` 并填写 D1 数据库 ID，本次一并纳入提交，文档同步为当前配置。
+
+已验证：
+
+- `bun run --filter @agenda/api typecheck`、`git diff --check` 通过。
+- 使用 `bun -e` 直接调用 Worker fetch，45 个请求场景通过：GET/OPTIONS 的精确匹配、单层/多层子域名、协议/端口/域名后缀不匹配、IPv6 字面量、零长度通配、混合列表、单独 `*`（含 null Origin）、空列表、无 Origin 及业务 400 响应的 CORS 头。未访问数据库，验证脚本未落盘。
+
+待完成 / 边界：
+
+- 本轮未运行全量浏览器/D1 回归或远程部署验证。
+
 ## 本轮：统一引用悬浮详情（2026-09-16）
 
 已编写：
@@ -251,7 +267,7 @@
 
 ## 下一步
 
-1. 若继续上线，准备实际 Cloudflare D1 ID、Worker 地址和前端域名，按 `README.md` 配置、远程迁移、部署，并验证线上 CORS 与数据持久化。目前 `database_id` 仍为占位符。
+1. 若继续上线，确认已填写的 Cloudflare D1 ID、Worker 地址和前端域名，按 `README.md` 配置、远程迁移、部署，并验证线上 CORS 与数据持久化。
 2. Safari/Firefox、实体手机和 Cloudflare 线上运行尚未验证；本轮手机测试为 Chromium 设备模拟。
 3. 后续功能或数据模型变更时，保留邮箱范围、事务写入和本地日期语义，并按影响范围运行现有类型检查及测试。当前本地验收无已知阻塞。
 
@@ -286,7 +302,7 @@
 
 ## Cloudflare 部署交接
 
-- `apps/api/wrangler.jsonc` 使用 D1 binding `DB`、数据库名 `agenda-db`、迁移目录 `apps/api/migrations`。`database_id` 仍是全零占位符，远程操作前需替换为实际数据库 ID。
+- `apps/api/wrangler.jsonc` 使用 D1 binding `DB`、数据库名 `agenda-db`、迁移目录 `apps/api/migrations`。`database_id` 已填写，远程操作前确认其对应目标数据库；本轮未验证远程连接。
 - `bun run db:migrate:remote` 应用远程迁移，`bun run deploy:api` 实际部署 Worker；本地迁移不会初始化远程数据库。
 - Web 的 API 地址由 `NUXT_PUBLIC_API_BASE` 配置，默认 `http://localhost:8787`；静态生成时需提供部署环境的 API 地址。
-- Worker 的 `ALLOWED_ORIGINS` 是逗号分隔的精确来源列表，目前只允许 localhost/127.0.0.1 的 3000 端口；更换前端来源时同步更新。
+- Worker 的 `ALLOWED_ORIGINS` 是逗号分隔的来源或通配符模式列表，`*` 匹配零个或多个任意字符，其他字符按字面匹配整个 Origin；当前配置为单独 `*`，允许所有来源。

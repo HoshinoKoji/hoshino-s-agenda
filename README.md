@@ -20,7 +20,7 @@ bun run dev
 - `dev` 同时启动 Web 与 Worker，在终端按 Ctrl+C 停止。
 - 单独启动：`bun run --filter @agenda/web dev` 或 `bun run --filter @agenda/api dev`。
 - 如需修改 API 地址，在 `apps/web/.env` 中设置 `NUXT_PUBLIC_API_BASE`，格式参考 `apps/web/.env.example`。值只包含来源/基础路径，不包含末尾 `/api`。
-- 本地 CORS 默认允许 `http://localhost:3000` 和 `http://127.0.0.1:3000`。通过局域网地址访问时，将对应来源加入 `apps/api/wrangler.jsonc` 的 `ALLOWED_ORIGINS`。
+- 当前 `apps/api/wrangler.jsonc` 的 `ALLOWED_ORIGINS` 为 `*`，允许所有来源；可按需改为逗号分隔的精确来源或通配符模式。
 
 ## 使用方式
 
@@ -103,9 +103,14 @@ bun run --cwd apps/api wrangler d1 create agenda-db
 
 将创建结果中的数据库 ID 写入 `apps/api/wrangler.jsonc`：
 
-- `d1_databases[0].database_id`：替换全零占位符。
+- `d1_databases[0].database_id`：填写上述命令返回的数据库 ID；使用现有配置时确认其对应目标数据库。
 - `d1_databases[0].binding`：保留 `DB`，与 API 代码一致。
-- `vars.ALLOWED_ORIGINS`：填写完整的前端来源，例如 `https://hoshinos-agenda.pages.dev`。多个来源使用逗号分隔；来源由协议、主机和可选端口组成，不带路径或末尾 `/`，不支持通配符。
+- `vars.ALLOWED_ORIGINS`：多个来源或模式使用逗号分隔，前后空格会忽略。来源由协议、主机和可选端口组成，不带路径或末尾 `/`。支持 `*` 匹配零个或多个任意字符，其余字符按字面匹配，且必须匹配整个来源：
+  - `https://hoshinos-agenda.pages.dev`：精确来源。
+  - `https://*.hoshinos-agenda.pages.dev`：预览子域名（含多级子域名），不包含 `https://hoshinos-agenda.pages.dev` 本身，需单独添加。
+  - `http://localhost:*`：localhost 的任意显式端口。
+  - `*`：允许所有来源。
+  - 可混用，例如 `http://localhost:3000,https://hoshinos-agenda.pages.dev,https://*.hoshinos-agenda.pages.dev`。匹配成功后，CORS 响应头返回请求的实际 Origin。
 
 然后初始化/升级远程数据库并部署 API。**必须先应用迁移（含 `0002_entry_description.sql`），再部署依赖描述列的 Worker 和前端**；已有数据库同样需要迁移：
 
@@ -137,7 +142,7 @@ bun run apps/api/node_modules/.bin/wrangler pages deploy apps/web/.output/public
 
 访问 Pages 的正式域名，输入测试邮箱，创建项目和事项，刷新页面确认云端记录仍在。再切换邮箱确认显示对应空间。
 
-如使用自定义域名或预览域名，将该精确来源加入 `ALLOWED_ORIGINS`，重新执行 `bun run deploy:api`。线上接口返回 403 时先检查来源配置；数据库错误则检查 D1 ID、`DB` binding 和远程迁移是否已应用。
+如使用自定义域名或预览域名，将对应来源或通配符模式加入 `ALLOWED_ORIGINS`，重新执行 `bun run deploy:api`。线上接口返回 403 时先检查来源配置；数据库错误则检查 D1 ID、`DB` binding 和远程迁移是否已应用。
 
 ## 目录与接口
 

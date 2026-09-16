@@ -4,13 +4,14 @@
   "main": "src/index.ts",
   "compatibility_date": "2025-09-13",
   "vars": {
-    "ALLOWED_ORIGINS": "http://localhost:3000,http://127.0.0.1:3000"
+    // 逗号分隔；支持 * 匹配任意长度字符，如 https://*.example.com；单独 * 允许所有来源。
+    "ALLOWED_ORIGINS": "*"
   },
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "agenda-db",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "b00e9432-2cd1-4455-b485-c783d3082dbd",
       "migrations_dir": "migrations"
     }
   ]
