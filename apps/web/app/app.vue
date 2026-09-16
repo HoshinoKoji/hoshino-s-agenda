@@ -42,7 +42,8 @@ const monthEntries = computed(() => filteredEntries.value.filter(entry => entry.
 const completedCount = computed(() => monthEntries.value.filter(entry => entry.completed).length)
 const selectedEntries = computed(() => filteredEntries.value.filter(entry => entry.date === selected.value))
 const selectedCompleted = computed(() => selectedEntries.value.filter(entry => entry.completed).length)
-const monthLabel = computed(() => month.value.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long' }))
+const monthLabel = computed(() => `${month.value.getFullYear()}.${month.value.getMonth() + 1}`)
+const syncedTime = computed(() => syncedAt.value?.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }))
 const currentProject = computed(() => projectMap.value.get(activeProject.value))
 const projectCounts = computed(() => {
   const counts = new Map<string, number>()
@@ -113,7 +114,7 @@ function followReference(entry: Entry | undefined) {
     </aside>
 
     <div class="main-shell">
-      <header class="topbar"><div class="breadcrumb"><AppIcon name="grid" :size="16" /><span>我的工作台</span><span class="breadcrumb-slash">/</span><strong>项目日历</strong></div><button class="sync-button" :disabled="loading || saving" :title="syncedAt ? `上次同步：${syncedAt.toLocaleTimeString('zh-CN')}` : '从云端读取数据'" @click="refresh"><span class="status-dot" :class="{ 'status-error': error, 'status-busy': loading || saving }" /><span>{{ saving ? '正在保存' : loading ? '正在同步' : error ? '同步失败 · 重试' : syncedAt ? '已与云端同步' : '同步数据' }}</span><AppIcon name="refresh" :size="14" :class="{ spinning: loading }" /></button></header>
+      <header class="topbar"><div class="breadcrumb"><AppIcon name="grid" :size="16" /><span>我的工作台</span><span class="breadcrumb-slash">/</span><strong>项目日历</strong></div><button class="sync-button" :disabled="loading || saving" :title="syncedAt ? `上次同步：${syncedAt.toLocaleDateString('zh-CN')} ${syncedTime}` : '从云端读取数据'" @click="refresh"><span class="status-dot" :class="{ 'status-error': error, 'status-busy': loading || saving }" /><span>{{ saving ? '正在保存' : loading ? '正在同步' : error ? '同步失败 · 重试' : syncedAt ? `已与云端同步 · ${syncedTime}` : '同步数据' }}</span><AppIcon name="refresh" :size="14" :class="{ spinning: loading }" /></button></header>
       <main class="workspace" :class="{ 'day-view': view === 'day' }">
         <div v-if="error" class="error-banner" role="alert"><span>{{ error }}</span><button class="text-button" :disabled="loading || saving" @click="refresh">重试</button></div>
 

@@ -1,5 +1,5 @@
 import { and, count, eq, inArray } from 'drizzle-orm'
-import { DESCRIPTION_MAX_LENGTH, PROJECT_COLORS, type AgendaData, type EntryInput, type ProjectInput } from '../../../shared/types'
+import { DESCRIPTION_MAX_LENGTH, type AgendaData, type EntryInput, type ProjectInput } from '../../../shared/types'
 import { createDb, type Database } from './db'
 import { accounts, entries, entryReferences, projects } from './db/schema'
 
@@ -60,8 +60,8 @@ function text(value: unknown, label: string, max: number) {
 
 function projectInput(value: Record<string, unknown>): ProjectInput {
   const name = text(value.name, '项目名称', 64)
-  if (!PROJECT_COLORS.includes(value.color as typeof PROJECT_COLORS[number])) fail(400, '请选择有效的项目颜色')
-  return { name, color: value.color as string }
+  if (typeof value.color !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(value.color)) fail(400, '请选择有效的 RGB 项目颜色')
+  return { name, color: (value.color as string).toUpperCase() }
 }
 
 function entryInput(value: Record<string, unknown>, id: string): EntryInput & { description: string } {

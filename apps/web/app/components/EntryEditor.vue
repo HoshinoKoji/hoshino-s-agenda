@@ -63,11 +63,10 @@ async function remove() {
           <p class="field-help">这些引用尚未写入描述，可单独移除。</p>
           <div class="reference-group"><button v-for="id in legacy" :key="id" type="button" class="reference-chip" :aria-label="`移除引用 @${entryMap.get(id)?.title || '事项已删除'}`" @click="legacy = legacy.filter(value => value !== id)">@{{ entryMap.get(id)?.title || '事项已删除' }}<AppIcon name="close" :size="12" /></button></div>
         </section>
-        <label class="checkbox-label completion-field"><input v-model="form.completed" type="checkbox"><span>已完成这件事项</span><AppIcon name="spark" :size="17" /></label>
         <div v-if="incoming.length" class="backlinks-note"><AppIcon name="link" :size="15" /><span>被 {{ incoming.length }} 个事项引用：{{ incoming.map(item => `@${item.title}`).join('、') }}</span></div>
         <div v-if="confirming" class="delete-confirm"><p>确定删除这个事项？其他事项中指向它的引用也会移除。</p><button type="button" class="button danger" @click="remove">确认删除事项</button><button type="button" class="button ghost" @click="confirming = false">取消</button></div>
         <p v-if="error" class="form-error" role="alert">{{ error }}</p>
-        <footer class="form-footer"><button v-if="entry && !confirming" type="button" class="icon-button danger-text" aria-label="删除事项" @click="confirming = true"><AppIcon name="trash" /></button><span class="spacer" /><button type="button" class="button secondary" @click="emit('close')">取消</button><button class="button primary" type="submit">{{ busy ? '保存中…' : entry ? '保存修改' : '添加事项' }}<AppIcon v-if="!busy" name="check" :size="17" /></button></footer>
+        <footer class="form-footer entry-form-footer"><button v-if="entry && !confirming" type="button" class="icon-button danger-text" aria-label="删除事项" @click="confirming = true"><AppIcon name="trash" /></button><label class="checkbox-label completion-field"><input v-model="form.completed" type="checkbox"><span>已完成</span></label><span class="spacer" /><button type="button" class="button secondary" @click="emit('close')">取消</button><button class="button primary" type="submit">{{ busy ? '保存中…' : entry ? '保存修改' : '添加事项' }}<AppIcon v-if="!busy" name="check" :size="17" /></button></footer>
       </fieldset>
     </form>
   </AppDialog>

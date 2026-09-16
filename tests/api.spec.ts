@@ -73,6 +73,22 @@ test('邮箱归一化与读写隔离，拒绝无效引用且保留原记录', as
   expect((await request.get('http://127.0.0.1:8787/api/agenda')).status()).toBe(400)
 })
 
+test('自定义 RGB 颜色创建、修改、归一化及无效值拒绝', async ({ space }) => {
+  const project = await space.project('自定义颜色', '#12abef')
+  expect(project.color).toBe('#12ABEF')
+  for (const color of ['#000000', '#ffffff', '#a1B2c3']) {
+    expect((await space.api.put(`/api/projects/${project.id}`, { data: { name: project.name, color } })).status()).toBe(200)
+    expect((await space.agenda()).projects[0]?.color).toBe(color.toUpperCase())
+  }
+  const before = await space.agenda()
+  for (const color of ['#123', '#12345678', '#GG0000', 'rgb(18, 171, 239)', '', null, 123456]) {
+    const data = { name: project.name, color }
+    expect((await space.api.post('/api/projects', { data })).status()).toBe(400)
+    expect((await space.api.put(`/api/projects/${project.id}`, { data })).status()).toBe(400)
+    expect(await space.agenda()).toEqual(before)
+  }
+})
+
 test('支持 50 个引用，替换和清空引用时保持事项数据完整', async ({ space }) => {
   const project = await space.project('引用边界')
   const targets: string[] = []

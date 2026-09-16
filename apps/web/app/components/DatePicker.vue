@@ -36,7 +36,11 @@ function closeOnEscape(event: KeyboardEvent) {
         :model-value="value" :min-value="minValue" :max-value="maxValue" :range="false" :multiple="false"
         :disabled="disabled" :week-starts-on="1" prevent-deselect initial-focus
         class="p-2" @update:model-value="select"
-      />
+      >
+        <template #heading="{ value: heading, view, date, setView }">
+          <UButton color="neutral" variant="ghost" block :label="view === 'day' ? `${date.year}.${date.month}` : heading" @click="setView(view === 'day' ? 'month' : view === 'month' ? 'year' : 'day')" />
+        </template>
+      </UCalendar>
     </template>
   </UPopover>
 </template>
