@@ -154,14 +154,18 @@ test('请求体按实际 UTF-8 字节限制到 64KiB（含无 Content-Length 的
   }
 })
 
-test('允许的来源可预检及读取，未允许的来源被拒绝', async ({ space }) => {
-  const response = await space.api.fetch('/api/agenda', { method: 'OPTIONS', headers: { Origin: 'http://127.0.0.1:3000', 'Access-Control-Request-Headers': 'x-user-email,content-type' } })
+test('同源请求可预检及读写，未允许的跨域来源被拒绝', async ({ space }) => {
+  const origin = 'http://127.0.0.1:8787'
+  const response = await space.api.fetch('/api/agenda', { method: 'OPTIONS', headers: { Origin: origin, 'Access-Control-Request-Headers': 'x-user-email,content-type' } })
   expect(response.status()).toBe(204)
-  expect(response.headers()['access-control-allow-origin']).toBe('http://127.0.0.1:3000')
+  expect(response.headers()['access-control-allow-origin']).toBe(origin)
   expect(response.headers()['access-control-allow-headers']).toContain('X-User-Email')
-  const agenda = await space.api.get('/api/agenda', { headers: { Origin: 'http://localhost:3000' } })
+  const agenda = await space.api.get('/api/agenda', { headers: { Origin: origin } })
   expect(agenda.status()).toBe(200)
   expect(agenda.headers()['cache-control']).toBe('no-store')
   expect(agenda.headers()['vary']).toBe('Origin')
+  expect((await space.api.post('/api/projects', {
+    headers: { Origin: origin }, data: { name: '同源写入', color: PROJECT_COLORS[0] },
+  })).status()).toBe(201)
   expect((await space.api.get('/api/agenda', { headers: { Origin: 'https://unlisted.example.com' } })).status()).toBe(403)
 })

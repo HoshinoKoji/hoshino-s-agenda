@@ -197,7 +197,7 @@ export default {
     const origin = request.headers.get('Origin')
     const allowed = (env.ALLOWED_ORIGINS || '').split(',').map(value => value.trim()).filter(Boolean)
     const headers = new Headers({ 'Vary': 'Origin', 'Cache-Control': 'no-store' })
-    const matchesOrigin = allowed.some(pattern => {
+    const matchesOrigin = origin === new URL(request.url).origin || allowed.some(pattern => {
       // Only * is special; anchor the escaped pattern to the entire origin.
       const source = pattern.split('*').map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*')
       return new RegExp(`^${source}$`).test(origin || '')

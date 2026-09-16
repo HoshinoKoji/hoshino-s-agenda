@@ -1,7 +1,6 @@
 import type { AgendaData, Entry, EntryInput, ProjectInput } from '../../../../shared/types'
 
 export function useAgenda(email: Ref<string>) {
-  const config = useRuntimeConfig()
   const data = ref<AgendaData>({ projects: [], entries: [] })
   const loading = ref(false)
   const saving = ref(false)
@@ -11,7 +10,7 @@ export function useAgenda(email: Ref<string>) {
 
   async function request<T>(path: string, method = 'GET', body?: unknown, account = email.value): Promise<T> {
     try {
-      return await $fetch<T>(`${config.public.apiBase.replace(/\/$/, '')}/api${path}`, {
+      return await $fetch<T>(`/api${path}`, {
         method: method as 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
         headers: { 'X-User-Email': account },
         body: body === undefined ? undefined : JSON.stringify(body),

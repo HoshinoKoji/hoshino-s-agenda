@@ -14,13 +14,14 @@ bun run db:migrate
 bun run dev
 ```
 
-打开 <http://localhost:3000>。前端为 Nuxt SPA，API 地址为 <http://localhost:8787>；`/api/health` 返回 `{"ok":true}` 表示 Worker 已启动，数据库是否可用由实际数据请求确认。
+打开 <http://localhost:3000>。前端为 Nuxt SPA，浏览器通过同源 `/api/*` 请求数据；Nuxt 开发服务器将这些请求代理到本地 Worker（8787）。访问 <http://localhost:3000/api/health> 返回 `{"ok":true}` 表示代理及 Worker 已启动，数据库是否可用由实际数据请求确认。
 
 - `db:migrate` 初始化本地 D1；开发数据保存在 `apps/api/.wrangler/state/`。
-- `dev` 同时启动 Web 与 Worker，在终端按 Ctrl+C 停止。
+- `dev` 同时启动 Web 与 Worker，保留 Nuxt 热更新，无需预先构建；在终端按 Ctrl+C 停止。
 - 单独启动：`bun run --filter @agenda/web dev` 或 `bun run --filter @agenda/api dev`。
-- 如需修改 API 地址，在 `apps/web/.env` 中设置 `NUXT_PUBLIC_API_BASE`，格式参考 `apps/web/.env.example`。值只包含来源/基础路径，不包含末尾 `/api`。
-- 当前 `apps/api/wrangler.jsonc` 的 `ALLOWED_ORIGINS` 为 `*`，允许所有来源；可按需改为逗号分隔的精确来源或通配符模式。
+- 前端固定使用相对路径 `/api`，不再使用 `NUXT_PUBLIC_API_BASE`；旧 `.env` 或部署环境中的这个变量可删除。
+- `ALLOWED_ORIGINS` 默认为空，同源请求自动允许；本地 Worker 的 `dev` 脚本临时允许 3000 端口的 localhost/127.0.0.1 Origin，供开发代理使用。
+- 要预览实际单 Worker 部署，运行 `bun run build && bun run preview`，打开 <http://localhost:8787>。预览复用本地开发 D1，先执行 `bun run db:migrate`。
 
 ## 使用方式
 
@@ -56,11 +57,11 @@ bun run test
 ```
 
 - `typecheck` 检查 Web、API、Playwright 配置及测试代码。
-- `build` 生成静态前端 `apps/web/.output/public/`，再执行 Worker 的 `wrangler deploy --dry-run`。
+- `build` 生成静态前端 `apps/web/.output/public/`，再执行包含静态资源的 Worker `wrangler deploy --dry-run`，不会上传远程资源。
 - `test:install` 下载 Chromium 到项目的 `node_modules` 内。Linux 若缺少浏览器系统库，根据 Playwright 提示安装对应系统依赖后再运行。
 - `test` 是 Playwright 测试运行器；请使用 `bun run test`，而非 Bun 内置的 `bun test`。
 
-测试会自动启动 3000/8787 两个服务并迁移独立的 `.wrangler/test-state/` 数据库。运行前先停止占用这两个端口的开发服务；测试配置不会复用已有服务。每个测试使用随机邮箱，结束后删除该邮箱下的项目及关联事项。
+测试会自动生成前端、启动 8787 上的单 Worker（静态资源 + API），并迁移独立的 `.wrangler/test-state/` 数据库。运行前先停止占用 8787 的开发服务；测试配置不会复用已有服务。每个测试使用随机邮箱，结束后删除该邮箱下的项目及关联事项。若要验证 Nuxt 热更新开发模式，使用 `AGENDA_TEST_DEV=1 bun run test`，该模式需要 3000/8787 均空闲。
 
 ```sh
 # 仅验证 API，无需安装浏览器
@@ -74,7 +75,7 @@ bun run test --project=mobile
 bun run playwright show-report
 ```
 
-功能覆盖：项目/事项 CRUD、邮箱隔离、双向引用及级联清理、50 引用与最大描述组合、描述缺省/修改/清空及 UTF-16 边界、64KiB 请求字节边界（含流式请求）、CORS、同步失败重试和旧请求隔离。`api` project 同时运行 `mentions.spec.ts` 纯函数测试；桌面/手机覆盖 @ 筛选、键盘及 IME 事件、Escape、中间插入、旧引用兼容、目标改名/删除、字面 HTML/Markdown 和无横向溢出。桌面另验证 tooltip 悬停/聚焦、portal 与 viewport 边界，并输出编辑器、详情及 tooltip 截图。
+功能覆盖：项目/事项 CRUD、邮箱隔离、双向引用及级联清理、50 引用与最大描述组合、描述缺省/修改/清空及 UTF-16 边界、64KiB 请求字节边界（含流式请求）、同源读写与跨域拒绝、同步失败重试和旧请求隔离。`api` project 同时运行 mentions 纯函数测试及部署路由测试（静态资源、SPA 回退、API 导航/错误返回 JSON）；桌面/手机覆盖同源 API 请求与 Cookie 携带、@ 筛选、键盘及 IME 事件、Escape、中间插入、旧引用兼容、目标改名/删除、字面 HTML/Markdown 和无横向溢出。桌面另验证 tooltip 悬停/聚焦、portal 与 viewport 边界，并输出编辑器、详情及 tooltip 截图。
 
 截图、失败 trace 位于 `test-results/`，HTML 报告位于 `playwright-report/`；这些目录和测试数据库均已被忽略。验证结果及剩余事项统一见 [HANDOFF.md](./HANDOFF.md)。
 
@@ -90,14 +91,15 @@ bun run playwright show-report
 
 ## Cloudflare 部署
 
-部署结构：**Cloudflare Pages 静态前端 → Worker API → D1**。下面的命令会创建或更新远程资源；将示例中的名称、数据库 ID 和域名替换为实际值。
+部署结构：**一个 Cloudflare Worker（Static Assets 前端 + `/api/*`）→ D1**。页面、JS/CSS 和接口共用一个域名、一次部署；不再需要 Pages 项目。下面的命令会创建或更新远程资源。
 
 ### 1. 创建 D1 并配置 Worker
 
-使用 workspace 中已安装的 Wrangler：
+使用 workspace 中已安装的 Wrangler 登录；已有 `agenda-db` 时复用现有数据库，仅新环境需要创建：
 
 ```sh
 bun run --cwd apps/api wrangler login
+# 仅首次创建数据库时执行
 bun run --cwd apps/api wrangler d1 create agenda-db
 ```
 
@@ -105,44 +107,33 @@ bun run --cwd apps/api wrangler d1 create agenda-db
 
 - `d1_databases[0].database_id`：填写上述命令返回的数据库 ID；使用现有配置时确认其对应目标数据库。
 - `d1_databases[0].binding`：保留 `DB`，与 API 代码一致。
-- `vars.ALLOWED_ORIGINS`：多个来源或模式使用逗号分隔，前后空格会忽略。来源由协议、主机和可选端口组成，不带路径或末尾 `/`。支持 `*` 匹配零个或多个任意字符，其余字符按字面匹配，且必须匹配整个来源：
-  - `https://hoshinos-agenda.pages.dev`：精确来源。
-  - `https://*.hoshinos-agenda.pages.dev`：预览子域名（含多级子域名），不包含 `https://hoshinos-agenda.pages.dev` 本身，需单独添加。
-  - `http://localhost:*`：localhost 的任意显式端口。
-  - `*`：允许所有来源。
-  - 可混用，例如 `http://localhost:3000,https://hoshinos-agenda.pages.dev,https://*.hoshinos-agenda.pages.dev`。匹配成功后，CORS 响应头返回请求的实际 Origin。
+- `assets.directory`：指向 Nuxt 静态生成目录；`run_worker_first` 将 `/api` 和 `/api/*` 交给 API，防止浏览器直接访问接口时返回 SPA HTML。其他页面路径使用 SPA 回退。
+- `vars.ALLOWED_ORIGINS`：保持空字符串即可，同源请求自动允许。如需额外跨域客户端，仍支持逗号分隔的来源和 `*` 通配符，例如 `https://tools.example.com,https://*.example.com`；匹配整个 Origin，返回实际 Origin。该配置不用于解决 Access 的跨域认证。
+- Worker 名称暂沿用 `hoshinos-agenda-api`，因此会更新原 Worker；现在这个 Worker 同时承载前端。D1 ID 与已有迁移保持兼容。
 
-然后初始化/升级远程数据库并部署 API。**必须先应用迁移（含 `0002_entry_description.sql`），再部署依赖描述列的 Worker 和前端**；已有数据库同样需要迁移：
+### 2. 一次部署前端和 API
+
+**先应用 D1 迁移（含 `0002_entry_description.sql`），再部署**；已有数据库同样需要检查迁移：
 
 ```sh
 bun run db:migrate:remote
-bun run deploy:api
+bun run deploy
 ```
 
-记录部署输出的 Worker 地址，例如 `https://hoshinos-agenda-api.YOUR_SUBDOMAIN.workers.dev`。本地迁移与远程迁移是独立操作。
+`deploy` 先生成前端，再由 Wrangler 一起上传 Worker 和静态资源。以后更新前端或 API 都运行这条命令；`deploy:api` 作为兼容别名也会执行完整部署。本地迁移与远程迁移是独立操作。
 
-### 2. 生成并上传前端
+部署输出的 Worker 地址（例如 `https://hoshinos-agenda-api.YOUR_SUBDOMAIN.workers.dev`）即可打开完整应用；同一地址的 `/api/health` 返回 JSON。无需设置前端 API 地址或执行 `wrangler pages deploy`。
 
-`NUXT_PUBLIC_API_BASE` 会写入静态构建产物，必须在生成时提供：
+### 3. 域名与 Cloudflare Access
 
-```sh
-NUXT_PUBLIC_API_BASE=https://hoshinos-agenda-api.YOUR_SUBDOMAIN.workers.dev bun run build
-```
+1. 在 Worker 的 **Settings → Domains & Routes** 添加自定义域名，例如 `agenda.example.com`。若该域名原本绑定 Pages，先解除旧绑定，再绑定到 Worker。
+2. 在 Cloudflare Zero Trust 的 Access 应用中保护整个 `agenda.example.com`，覆盖页面与 `/api/*`，使用同一套访问策略。登录后浏览器同源请求会自动携带 Access Cookie，无需跨域预检放行或单独登录 API 域名。
+3. 若保留 `workers.dev` 或预览 URL 入口，也应为其启用对应的 Access 保护；不需要的入口可在 Worker 设置中禁用。
+4. 移除旧 Pages 的自动部署任务及 `NUXT_PUBLIC_API_BASE` 配置；新域名验证成功后可停用旧 Pages 项目。
 
-首次创建 Pages 项目，然后上传静态文件。以下从根目录调用已安装的 Wrangler，以免读取 API 的 Worker 配置作为 Pages 配置：
+访问正式域名，验证 Access 登录、项目和事项的创建/修改、刷新后数据保留及邮箱切换。浏览器 Network 中页面与 API 应属于同一个 Origin。更换域名无需重新生成 API 地址或修改 CORS 列表。数据库错误则检查 D1 ID、`DB` binding 和远程迁移是否已应用。
 
-```sh
-bun run apps/api/node_modules/.bin/wrangler pages project create hoshinos-agenda --production-branch main
-bun run apps/api/node_modules/.bin/wrangler pages deploy apps/web/.output/public --project-name hoshinos-agenda --branch main
-```
-
-以后更新前端时，重新生成并执行 `pages deploy` 即可。更换 API 地址后也要重新生成；仅修改静态站点的运行环境变量不会改变已打包的 API 地址。
-
-### 3. 验证线上配置
-
-访问 Pages 的正式域名，输入测试邮箱，创建项目和事项，刷新页面确认云端记录仍在。再切换邮箱确认显示对应空间。
-
-如使用自定义域名或预览域名，将对应来源或通配符模式加入 `ALLOWED_ORIGINS`，重新执行 `bun run deploy:api`。线上接口返回 403 时先检查来源配置；数据库错误则检查 D1 ID、`DB` binding 和远程迁移是否已应用。
+Access 会话过期时仍需重新登录（刷新页面即可进入认证流程）。应用内邮箱继续用于选择数据空间，并未改为 Access 身份映射。
 
 ## 目录与接口
 

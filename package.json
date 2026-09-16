@@ -10,9 +10,11 @@
     "typecheck": "bun run --filter '*' typecheck && bun run typecheck:tests",
     "typecheck:tests": "tsc --project tsconfig.tests.json",
     "build": "bun run --filter @agenda/web generate && bun run --filter @agenda/api build",
+    "preview": "bun run --filter @agenda/api preview",
     "test": "PLAYWRIGHT_BROWSERS_PATH=0 playwright test",
     "test:install": "PLAYWRIGHT_BROWSERS_PATH=0 playwright install chromium",
-    "deploy:api": "bun run --filter @agenda/api deploy"
+    "deploy": "bun run --filter @agenda/web generate && bun run --filter @agenda/api deploy",
+    "deploy:api": "bun run deploy"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0",

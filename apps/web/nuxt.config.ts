@@ -1,5 +1,3 @@
-import process from 'node:process'
-
 export default defineNuxtConfig({
   compatibilityDate: '2025-09-13',
   ssr: false,
@@ -7,8 +5,10 @@ export default defineNuxtConfig({
   modules: ['@nuxt/ui'],
   ui: { colorMode: false, fonts: false },
   css: ['~/assets/main.css'],
-  runtimeConfig: {
-    public: { apiBase: process.env.NUXT_PUBLIC_API_BASE || 'http://localhost:8787' },
+  nitro: {
+    devProxy: {
+      '/api': { target: 'http://127.0.0.1:8787/api', changeOrigin: true },
+    },
   },
   app: {
     head: {

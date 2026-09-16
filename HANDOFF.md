@@ -1,5 +1,27 @@
 # 项目交接
 
+## 本轮：前端与 API 合并为单 Worker 同源部署（2026-09-16）
+
+已编写：
+
+- `apps/api/wrangler.jsonc` 配置 Workers Static Assets，上传 `apps/web/.output/public`，普通页面启用 SPA 回退，`/api` 与 `/api/*` 强制交给 Worker（包括浏览器导航）。沿用原 Worker 名 `hoshinos-agenda-api` 和现有 D1 ID，无数据库结构变更。
+- 前端固定请求相对路径 `/api`，移除 `NUXT_PUBLIC_API_BASE` 配置及旧 `.env.example`。Nuxt `nitro.devProxy` 将开发时的同源请求代理到 8787；API `dev` 命令使用已有 `apps/web/public` 作为资源目录并临时允许本地 3000 Origin，因此全新检出无需构建即可启动热更新开发。
+- API 自动允许自身 Origin，生产 `ALLOWED_ORIGINS` 改为空；原精确来源/通配符扩展逻辑保留。新增根 `deploy`（生成前端后一起部署 Worker/资源）和 `preview`，旧 `deploy:api` 兼容别名调用完整部署。
+- Playwright 默认生成前端并在 8787 运行单 Worker，测试 D1 仍独立；`AGENDA_TEST_DEV=1` 切换为 Nuxt 3000 + Worker 8787。新增 `tests/deployment.spec.ts` 验证首页、favicon、SPA 回退、API 导航和错误 JSON；浏览器 CRUD 主流程增加 API 同源、Cookie 携带及无 OPTIONS 断言。
+- README 更新为单 Worker 部署、Pages 域名迁移、Access 整域保护及旧环境变量清理说明。
+
+已验证：
+
+- Bun **1.3.14**；`bun run typecheck`、`git diff --check` 通过。
+- `bun run test` **23/23 通过**（API 6、部署路由 1、mentions 4、桌面 6、手机 6；31.1s），通过真实本地 Wrangler Static Assets + D1 验证完整生产构建。
+- `WRANGLER_LOG_PATH="$PWD/.wrangler/logs" WRANGLER_SEND_METRICS=false NUXT_TELEMETRY_DISABLED=1 bun run build` 通过，Wrangler dry-run 识别到 18 个静态文件、D1 与空 `ALLOWED_ORIGINS`。仍有既有 chunk 体积、依赖未用导入和工具代理提示。
+- `AGENDA_TEST_DEV=1 bun run test --project=api --project=desktop --project=mobile -g '同一入口|同源请求|邮箱进入、项目和事项编辑'` **4/4 通过**（17.9s），验证 Nuxt 同源代理、API 来源检查与两端 CRUD/Cookie 携带。当前 `playwright-report/` 和 `test-results/` 为这次专项结果，已覆盖前次全量报告。
+
+待完成 / 边界：
+
+- 未执行远程迁移、部署或 Cloudflare Access 实际登录验证。上线需按 README 执行远程迁移与 `bun run deploy`，将原 Pages 域名绑定到 Worker，并在 Access 覆盖整个站点及 API。
+- Cookie 验证使用本地 HttpOnly/SameSite=Lax 测试 Cookie，确认浏览器同源携带行为；不代表已验证真实 Access 会话或过期重登录流程。
+
 ## 本轮：ALLOWED_ORIGINS 通配符（2026-09-16）
 
 已编写：
@@ -63,8 +85,8 @@
 - Bun workspace、Nuxt 4 SPA、Worker API、D1 初始迁移及共享类型已编写，已通过本地类型检查、构建和功能验证。
 - 前端邮箱进入/切换、项目管理、月日历、事项编辑、完成切换、双向引用展示与跳转已验证。
 - `apps/web/app/assets/main.css` 已补齐欢迎页、工作台、日历、表单与弹窗的响应式样式；已复核桌面/手机截图，并修正长邮箱换行和窄屏项目栏收缩问题。字体使用本机字体栈，无外部字体请求。
-- 已编写 `playwright.config.ts`、`tests/fixtures.ts`、API、mentions 纯函数与浏览器功能测试，当前完整回归共 22 项通过（详见本轮验收）。
-- 已编写根 `README.md`，包含本地启动、测试、Cloudflare D1/Worker/Pages 部署及接口说明。远程部署流程尚未实际执行。
+- 已编写 `playwright.config.ts`、`tests/fixtures.ts`、API、部署路由、mentions 纯函数与浏览器功能测试，当前完整回归共 23 项通过（详见单 Worker 验收）。
+- 已编写根 `README.md`，包含本地启动、测试、Cloudflare 单 Worker + D1 部署及 Access 域名迁移说明。远程部署流程尚未实际执行。
 - 数据库访问已统一改为 Drizzle ORM 0.45.2：`apps/api/src/db` 提供统一初始化和四张表的类型化映射；API 的查询、计数、增删改与批处理均使用 ORM。已通过真实本地 D1 回归测试。
 
 ## 验证记录
@@ -267,7 +289,7 @@
 
 ## 下一步
 
-1. 若继续上线，确认已填写的 Cloudflare D1 ID、Worker 地址和前端域名，按 `README.md` 配置、远程迁移、部署，并验证线上 CORS 与数据持久化。
+1. 若继续上线，确认已填写的 Cloudflare D1 ID、Worker 和站点域名，按 `README.md` 远程迁移、完整部署、迁移 Pages 域名及配置整域 Access，验证真实登录、同源 API 与数据持久化。
 2. Safari/Firefox、实体手机和 Cloudflare 线上运行尚未验证；本轮手机测试为 Chromium 设备模拟。
 3. 后续功能或数据模型变更时，保留邮箱范围、事务写入和本地日期语义，并按影响范围运行现有类型检查及测试。当前本地验收无已知阻塞。
 
@@ -280,13 +302,14 @@
 - 类型检查：`bun run typecheck` 包含两个 workspace 及 `tsconfig.tests.json`；聚焦单包用 `bun run --filter @agenda/api typecheck` 或 `bun run --filter @agenda/web typecheck`，测试代码用 `bun run typecheck:tests`。
 - Web 的 tsconfig 继承生成的 `.nuxt/tsconfig.json`；安装时 `postinstall` 执行 `nuxt prepare`。缺少生成配置时运行 `bun run --filter @agenda/web postinstall`。
 - `bun run build` 依次执行 Web 的 `nuxt generate` 和 API 的 `wrangler deploy --dry-run`，不会实际部署 Worker。
+- `bun run preview` 在 8787 预览已构建的静态资源 + API，复用本地开发 D1；先运行迁移和构建。`bun run deploy` 会生成前端并上传完整 Worker，`deploy:api` 是其兼容别名。
 - `bun run test:install` 安装 Chromium，`bun run test` 调用 Playwright（不是 Bun 内置测试运行器），脚本设置 `PLAYWRIGHT_BROWSERS_PATH=0`，浏览器缓存在项目依赖目录。
-- 测试自动启动 Web/API，使用独立的根 `.wrangler/test-state/`，不复用开发服务；运行前需释放 3000/8787。每个测试随机邮箱并在结束时清理项目及关联事项，空 accounts 行留在测试库内。
+- 测试默认构建前端并自动启动单 Worker（8787），使用独立的根 `.wrangler/test-state/`，不复用开发服务；运行前需释放 8787。`AGENDA_TEST_DEV=1 bun run test` 验证 Nuxt 同源代理开发模式，需释放 3000/8787。每个测试随机邮箱并在结束时清理项目及关联事项，空 accounts 行留在测试库内。
 - 聚焦测试：`bun run test --project=api` / `--project=desktop` / `--project=mobile`；报告 `playwright-report/`，截图与失败 trace 在 `test-results/`。测试结束后服务自动停止。
 
 ## 技术交接
 
-- Web 是 Nuxt 4 SPA（`ssr: false`），入口为 `apps/web/app/app.vue`；`~` 指向 `apps/web/app`。API 是独立 Worker，路由入口为 `apps/api/src/index.ts`，不在 Nuxt server 目录中。
+- Web 是 Nuxt 4 SPA（`ssr: false`），入口为 `apps/web/app/app.vue`；`~` 指向 `apps/web/app`。API 路由入口为 `apps/api/src/index.ts`，不在 Nuxt server 目录中；部署时同一 Worker 通过 Static Assets 提供前端、通过脚本处理 `/api` 和 `/api/*`。
 - `shared/types.ts` 由两端直接相对导入，不是独立 workspace 包；其中 `PROJECT_COLORS` 同时供 UI 选择和 API 校验。
 - `useAgenda`（`apps/web/app/composables/useAgenda.ts`）统一请求 API，写入后重新读取 `/api/agenda`。切换邮箱时清空数据并用 generation 标记屏蔽旧响应，修改请求逻辑时保留此隔离行为。
 - 邮箱以 `X-User-Email` 请求头传递，服务端 trim + lowercase；这是数据空间标识，无密码或邮箱验证。浏览器仅以 `agenda:email` 记住邮箱，项目和事项存于 D1。
@@ -303,6 +326,6 @@
 ## Cloudflare 部署交接
 
 - `apps/api/wrangler.jsonc` 使用 D1 binding `DB`、数据库名 `agenda-db`、迁移目录 `apps/api/migrations`。`database_id` 已填写，远程操作前确认其对应目标数据库；本轮未验证远程连接。
-- `bun run db:migrate:remote` 应用远程迁移，`bun run deploy:api` 实际部署 Worker；本地迁移不会初始化远程数据库。
-- Web 的 API 地址由 `NUXT_PUBLIC_API_BASE` 配置，默认 `http://localhost:8787`；静态生成时需提供部署环境的 API 地址。
-- Worker 的 `ALLOWED_ORIGINS` 是逗号分隔的来源或通配符模式列表，`*` 匹配零个或多个任意字符，其他字符按字面匹配整个 Origin；当前配置为单独 `*`，允许所有来源。
+- `bun run db:migrate:remote` 应用远程迁移，`bun run deploy` 实际部署 Worker 与生成的静态前端；`deploy:api` 为兼容别名。本地迁移不会初始化远程数据库。
+- Web 固定使用同源 `/api`，不再读取 `NUXT_PUBLIC_API_BASE`；开发时 Nuxt 将请求代理到本地 Worker。Pages 域名迁移到 Worker 后，Access 应保护整个域名（含 API）。
+- Worker 的 `ALLOWED_ORIGINS` 当前为空，同源自动允许；仍支持逗号分隔的额外来源或通配符模式，`*` 匹配零个或多个任意字符，其他字符按字面匹配整个 Origin。API `dev` 脚本临时允许本地 3000 Origin，不影响部署配置。

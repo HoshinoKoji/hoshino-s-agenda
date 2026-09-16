@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test'
+import type { Page, Request } from '@playwright/test'
 import { test, expect } from './fixtures'
 import { serializeMention } from '../shared/mentions'
 
@@ -21,9 +21,14 @@ async function noOverflow(page: Page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 }
 
-test('邮箱进入、项目和事项编辑、完成、双向引用跳转与删除', async ({ page, space, otherSpace }, testInfo) => {
+test('邮箱进入、项目和事项编辑、完成、双向引用跳转与删除', async ({ page, space, otherSpace, baseURL }, testInfo) => {
   test.setTimeout(60_000)
   const errors: string[] = []
+  const apiRequests: Request[] = []
+  await page.context().addCookies([{ name: 'agenda-test-session', value: 'same-origin', url: baseURL!, httpOnly: true, sameSite: 'Lax' }])
+  page.on('request', request => {
+    if (new URL(request.url()).pathname.startsWith('/api/')) apiRequests.push(request)
+  })
   page.on('pageerror', error => errors.push(error.message))
   await page.clock.setFixedTime(new Date('2026-09-13T04:00:00Z'))
   await page.goto('/')
@@ -133,6 +138,12 @@ test('邮箱进入、项目和事项编辑、完成、双向引用跳转与删�
   await expect(projectNav.getByRole('button', { name: /^阅读计划/ })).toHaveCount(0)
   expect((await space.agenda()).entries).toEqual([])
   expect(errors).toEqual([])
+  expect(apiRequests.length).toBeGreaterThan(0)
+  for (const request of apiRequests) {
+    expect(new URL(request.url()).origin).toBe(new URL(baseURL!).origin)
+    expect(request.method()).not.toBe('OPTIONS')
+    expect(await request.headerValue('cookie')).toContain('agenda-test-session=same-origin')
+  }
 })
 
 test('流式日视图支持日期导航、筛选、编辑和跨月引用', async ({ page, space }, testInfo) => {
