@@ -17,7 +17,7 @@ export default defineConfig({
     screenshot: 'only-on-failure',
   },
   projects: [
-    { name: 'api', testMatch: 'api.spec.ts' },
+    { name: 'api', testMatch: /(?:api|mentions)\.spec\.ts/ },
     { name: 'desktop', testMatch: 'web.spec.ts', use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 1000 } } },
     { name: 'mobile', testMatch: 'web.spec.ts', use: { ...devices['Pixel 7'], viewport: { width: 390, height: 844 } } },
   ],

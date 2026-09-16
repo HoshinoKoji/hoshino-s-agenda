@@ -24,6 +24,7 @@ export const entries = sqliteTable('entries', {
   projectId: text('project_id').notNull(),
   date: text('date').notNull(),
   title: text('title').notNull(),
+  description: text('description').notNull().default(''),
   completed: integer('completed', { mode: 'boolean' }).notNull().default(false),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),

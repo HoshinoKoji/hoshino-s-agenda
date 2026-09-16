@@ -16,11 +16,13 @@ export class Space {
     return response.json()
   }
 
-  async entry(projectId: string, title: string, date: string, references: string[] = []): Promise<string> {
-    const data: EntryInput = { projectId, title, date, references, completed: false }
+  async entry(projectId: string, title: string, date: string, references: string[] = [], description?: string): Promise<string> {
+    const data: EntryInput = { projectId, title, date, references, completed: false, ...(description === undefined ? {} : { description }) }
     const response = await this.api.post('/api/entries', { data })
     expect(response.status()).toBe(201)
-    return (await response.json()).id
+    const result = await response.json()
+    expect(result.description).toBe(description ?? '')
+    return result.id
   }
 }
 

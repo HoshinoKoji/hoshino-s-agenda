@@ -59,6 +59,7 @@ test('邮箱归一化与读写隔离，拒绝无效引用且保留原记录', as
     { date: '2026-02-30' },
     { completed: 'true' },
     { title: '   ' },
+    { title: '   ', description: '有描述仍须填写标题' },
   ]) {
     const response = await space.api.put(`/api/entries/${first}`, { data: { ...input, ...invalid } })
     expect(response.status()).toBe(400)
@@ -68,7 +69,7 @@ test('邮箱归一化与读写隔离，拒绝无效引用且保留原记录', as
   expect((await space.api.post('/api/projects', { data: { name: '项目', color: 'red' } })).status()).toBe(400)
   expect((await space.api.post('/api/projects', { data: 'not json', headers: { 'Content-Type': 'application/json' } })).status()).toBe(400)
   expect((await space.api.post('/api/projects', { data: 'text' })).status()).toBe(415)
-  expect((await space.api.post('/api/projects', { data: { name: 'x'.repeat(17_000) } })).status()).toBe(413)
+  expect((await space.api.post('/api/projects', { data: { name: 'x'.repeat(65_536) } })).status()).toBe(413)
   expect((await request.get('http://127.0.0.1:8787/api/agenda')).status()).toBe(400)
 })
 
@@ -78,20 +79,78 @@ test('支持 50 个引用，替换和清空引用时保持事项数据完整', a
   for (let index = 0; index < 50; index++) {
     targets.push(await space.entry(project.id, `目标 ${index}`, '2026-09-13'))
   }
-  const source = await space.entry(project.id, '引用汇总', '2026-09-14', targets)
+  const source = await space.entry(project.id, '引用汇总', '2026-09-14', targets, '\u0000'.repeat(4000))
   let agenda = await space.agenda()
   const original = agenda.entries.find(entry => entry.id === source)!
   expect(original.references).toEqual([...targets].sort())
   expect(original.completed).toBe(false)
+  expect(original.description).toBe('\u0000'.repeat(4000))
 
   for (const references of [[targets[0]], []]) {
     const input = { projectId: project.id, title: '更新汇总', date: '2026-09-15', completed: true, references }
     expect((await space.api.put(`/api/entries/${source}`, { data: input })).status()).toBe(200)
     agenda = await space.agenda()
     expect(agenda.entries.find(entry => entry.id === source)).toEqual({
-      id: source, ...input, createdAt: original.createdAt, updatedAt: expect.any(String),
+      id: source, ...input, description: '', createdAt: original.createdAt, updatedAt: expect.any(String),
     })
     expect(agenda.entries.filter(entry => entry.id !== source)).toHaveLength(50)
+  }
+})
+
+test('描述缺省、空白、多行与 UTF-16 边界往返，PUT 修改及清空，拒绝输入保持数据不变', async ({ space }) => {
+  const project = await space.project('描述边界')
+  const target = await space.entry(project.id, '引用目标', '2026-09-13')
+  const source = await space.entry(project.id, '必填标题', '2026-09-13', [target])
+  const input = { projectId: project.id, title: '必填标题', date: '2026-09-13', completed: false, references: [target] }
+  const current = async () => (await space.agenda()).entries.find(entry => entry.id === source)!
+  expect((await current()).description).toBe('')
+  for (const description of ['', '  \n\t \r\n末尾  ', '<b>字面 HTML</b>\n**Markdown**', '😀'.repeat(2000), '\u0000'.repeat(4000)]) {
+    const created = await space.entry(project.id, '往返', '2026-09-14', [], description)
+    expect((await space.agenda()).entries.find(entry => entry.id === created)?.description).toBe(description)
+    const response = await space.api.put(`/api/entries/${source}`, { data: { ...input, description } })
+    expect(response.status()).toBe(200)
+    expect(await response.json()).toEqual({ id: source, description })
+    expect(await current()).toMatchObject({ description, references: [target] })
+  }
+  const before = await space.agenda()
+  for (const description of [null, 42, false, [], {}, 'x'.repeat(4001), '😀'.repeat(2000) + 'x']) {
+    for (const [method, path] of [['POST', '/api/entries'], ['PUT', `/api/entries/${source}`]] as const) {
+      expect((await space.api.fetch(path, { method, data: { ...input, title: '不得写入', description, references: [] } })).status()).toBe(400)
+      expect(await space.agenda()).toEqual(before)
+    }
+  }
+  expect((await space.api.patch(`/api/entries/${source}`, { data: { completed: true } })).status()).toBe(200)
+  expect((await current()).description).toBe('\u0000'.repeat(4000))
+  expect((await space.api.put(`/api/entries/${source}`, { data: input })).status()).toBe(200)
+  expect(await current()).toMatchObject({ description: '', references: [target] })
+})
+
+test('请求体按实际 UTF-8 字节限制到 64KiB（含无 Content-Length 的流式请求）', async ({ space }) => {
+  const project = await space.project('请求边界')
+  const source = await space.entry(project.id, '边界记录', '2026-09-13')
+  const input = { projectId: project.id, title: '边界记录', description: '中文😀', date: '2026-09-13', completed: false, references: [] }
+  const json = JSON.stringify(input)
+  // JSON trailing whitespace keeps the input valid without conflating field and body limits.
+  for (const size of [65_535, 65_536, 65_537]) {
+    const before = await space.agenda()
+    const data = json + ' '.repeat(size - Buffer.byteLength(json))
+    expect(Buffer.byteLength(data)).toBe(size)
+    for (const streamed of [false, true]) {
+      const response = streamed
+        ? await fetch(`http://127.0.0.1:8787/api/entries/${source}`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-User-Email': space.email },
+            body: new ReadableStream({ start(controller) {
+              const bytes = new TextEncoder().encode(data)
+              controller.enqueue(bytes.slice(0, 32_768))
+              controller.enqueue(bytes.slice(32_768))
+              controller.close()
+            } }), duplex: 'half',
+          } as RequestInit & { duplex: 'half' })
+        : await space.api.put(`/api/entries/${source}`, { data, headers: { 'Content-Type': 'application/json' } })
+      expect(typeof response.status === 'function' ? response.status() : response.status).toBe(size > 65_536 ? 413 : 200)
+      if (size > 65_536) expect(await space.agenda()).toEqual(before)
+      else expect((await space.agenda()).entries[0]?.description).toBe(input.description)
+    }
   }
 })
 

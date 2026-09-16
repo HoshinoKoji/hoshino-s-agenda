@@ -1,16 +1,71 @@
 # 项目交接
 
+## 本轮：统一引用悬浮详情（2026-09-16）
+
+已编写：
+
+- 抽取 `EntryTooltip.vue`，统一月视图事项、下方「引用 / 被引用」及描述内 @ 提及的悬浮详情，移除引用按钮的原生 `title`；复用 Nuxt UI `UTooltip`、现有样式和 portal，展示目标标题、项目、日期、状态及描述。
+- tooltip 中的描述禁用交互，避免引用嵌套生成更多 tooltip；点击引用继续跨日期/项目跳转。扩充现有 legacy 回归，检查引用、被引用、改名后内联提及的组件提示及跳转。
+
+已验证：
+
+- `bun run --filter @agenda/web typecheck`、`bun run typecheck:tests`、`git diff --check` 通过。
+- 默认浏览器回归因 8787 已占用未启动；改用项目内临时配置、3001/8788 端口和独立 `.wrangler/test-state/`，运行 `bun run test --config=tooltip-playwright.config.ts --project=desktop --project=mobile -g 'legacy 引用|长描述详情'`，**4/4 通过**。覆盖引用悬浮/跳转、手机点击、月视图悬停/键盘聚焦和长内容边界；临时配置已删除，fixture 默认端口已恢复。
+
+待完成 / 边界：
+
+- 本轮未重新执行全量 API 测试或生产构建；未人工复核本轮截图。
+
+## 本轮：描述 / @ 引用 / 月视图 tooltip 回归验收（2026-09-16）
+
+已编写：
+
+- 接手时先阅读交接、Git 差异和相关实现；保留已有描述、迁移、引用组件及日历工具栏改动。本轮按文件补充 `tests/fixtures.ts`、`tests/api.spec.ts`、`tests/mentions.spec.ts`、`tests/web.spec.ts`，将 mentions 纯函数测试纳入 Playwright `api` project。
+- API 覆盖描述缺省/空/多行空格/控制字符往返、PUT 修改及缺省清空、PATCH 保留描述、4000 UTF-16 接受与 4001/null/非字符串拒绝且数据不变、65,535/65,536/65,537 字节请求（普通与无 Content-Length 流式），以及 50 引用 + 4000 转义字符组合；保留引用隔离、自引用拒绝、级联等原回归。
+- 浏览器旧引用复选框改为描述内 @ 选择；旧「本月概览 region / 100%」断言更新为现有工具栏「总数 / 未完成」。新增同名 ID、筛选、键盘、IME 事件、Escape、光标中间插入、刷新、字面 HTML/Markdown、删除标记、legacy 保留/移除/转为标记、目标改名/删除展示、桌面 tooltip 和手机溢出回归。
+- README 补充字段/限制、标记及转义、旧引用兼容、PUT 缺省清空、API 显式 references 语义、部署先迁移和测试说明。无需额外应用源码修复。
+
+已验证：
+
+- 环境 Bun **1.3.14**；3000/8787 空闲，直接运行 Nuxt dev + Wrangler/D1，测试使用独立 `.wrangler/test-state/`。本轮未遇到端口或 ENOSPC 阻塞。
+- `bun run typecheck` 通过（Web、API、测试）；`git diff --check` 通过。
+- 首轮 API/纯函数 **10/10 通过**；首轮全量 **20 通过、2 失败**，原因是新测试的全局 `option` 定位包含项目 select 选项，限定到候选 listbox 后聚焦复验 **2/2 通过**。
+- 最终 `bun run test` **22/22 通过**（API 6、mentions 纯函数 4、桌面 Chromium 6、手机 Chromium 模拟 6；39.9s）。随后仅优化手机长描述截图的滚动起点，`bun run test --project=desktop --project=mobile -g '长描述详情' --output=.wrangler/description-review --reporter=list` **2/2 通过**，保留全量 HTML 报告。
+- `WRANGLER_LOG_PATH="$PWD/.wrangler/logs" WRANGLER_SEND_METRICS=false NUXT_TELEMETRY_DISABLED=1 NUXT_PUBLIC_API_BASE=http://127.0.0.1:8787 bun run build` 通过：静态生成和 Worker dry-run 均成功。仍有主 chunk >500kB、依赖内部未使用导入、SPA 不预渲染 HTML 及环境代理提示，均不影响退出状态。
+- 项目 `.wrangler/` 内临时 Bun SQLite 旧库：执行真实 `0001`，用 Drizzle 写入两条旧事项及引用，再应用 `0002`；断言两条旧记录 description 为 `''`、时间戳/完成状态/引用完全保留，升级后省略新列的旧式插入也默认空字符串。临时脚本和数据库已清理；真实 D1 的迁移和新 schema 读写由上述 API 回归验证。真实开发库未参与验证。
+- 已打开查看桌面/手机 `description-picker.png`、手机 `description-detail.png`、桌面 `description-tooltip.png`、桌面 `calendar.png`，以及 `.wrangler/description-review/` 中从卡片顶部拍摄的 `long-description-mobile.png`。编辑器、候选和长描述无横向溢出；tooltip portal 不受日历裁剪、长内容内部滚动且边界在 viewport 内，工具栏总数/未完成在两端布局正常。
+- 可访问性交互断言覆盖描述 label、listbox/option、aria-controls/activedescendant/selected、Escape 保留 dialog、Tab 聚焦 tooltip 触发器及 aria-describedby；tooltip 无嵌套可交互引用。HTML/Markdown 没有生成可执行 DOM，逐字断言保留多行及空格。
+
+待完成 / 边界：
+
+- 当前需求在本地无已知阻塞。Safari/Firefox、实体手机/软键盘、真实系统 IME、屏幕阅读器及 Cloudflare 远程升级部署未验证；IME 仅验证浏览器 composition/keydown 事件协议。
+- 截图/报告是本地验收产物，非视觉快照基线。完整报告在 `playwright-report/`，主要截图在 `test-results/web-*/`；追加长文本截图在 `.wrangler/description-review/`。未留下临时 Playwright 配置或临时迁移脚本。
+
 ## 目标与当前进展
 
 - 项目日志 WebApp：以日历记录项目事项及完成状态，支持项目筛选和事项互相引用；数据存于云端，以邮箱提取，暂不验证邮箱。
 - Bun workspace、Nuxt 4 SPA、Worker API、D1 初始迁移及共享类型已编写，已通过本地类型检查、构建和功能验证。
 - 前端邮箱进入/切换、项目管理、月日历、事项编辑、完成切换、双向引用展示与跳转已验证。
 - `apps/web/app/assets/main.css` 已补齐欢迎页、工作台、日历、表单与弹窗的响应式样式；已复核桌面/手机截图，并修正长邮箱换行和窄屏项目栏收缩问题。字体使用本机字体栈，无外部字体请求。
-- 已编写 `playwright.config.ts`、`tests/fixtures.ts`、API 与浏览器功能测试，当前共 8 项测试通过。
+- 已编写 `playwright.config.ts`、`tests/fixtures.ts`、API、mentions 纯函数与浏览器功能测试，当前完整回归共 22 项通过（详见本轮验收）。
 - 已编写根 `README.md`，包含本地启动、测试、Cloudflare D1/Worker/Pages 部署及接口说明。远程部署流程尚未实际执行。
 - 数据库访问已统一改为 Drizzle ORM 0.45.2：`apps/api/src/db` 提供统一初始化和四张表的类型化映射；API 的查询、计数、增删改与批处理均使用 ORM。已通过真实本地 D1 回归测试。
 
 ## 验证记录
+
+### 本轮：概览并入日历工具栏（2026-09-16）
+
+已编写：
+
+- 去掉独立概览卡片，将总数和未完成数放在月份旁边，添加事项按钮并入日历工具栏；移除额外边框与行间距，收紧工具栏内边距，窄屏按可用宽度换行。
+
+已验证：
+
+- `bun run --filter @agenda/web typecheck`、`git diff --check` 通过。
+
+待完成 / 边界：
+
+- 尚未进行本轮浏览器截图复核。
 
 ### 本轮：概览合并为单卡片（2026-09-14）
 
@@ -222,6 +277,11 @@
 - 数据查询与修改须保留 `owner_email` 范围。迁移中的复合外键保证项目、事项和引用属于同一邮箱；项目删除级联删除事项，事项删除级联清理两端引用。
 - 数据库统一经 `apps/api/src/db/index.ts` 的 `createDb(env.DB)` 初始化 Drizzle D1 实例，表结构由 `schema.ts` 导出。业务代码使用 ORM API；数据模型调整需同步维护 schema 与新增 Wrangler 迁移。
 - 引用是有向关系，可跨项目、跨日期、互相引用；禁止自引用，每项最多 50 个。事项及引用的写入使用同一个 Drizzle D1 batch，保留逐条引用插入以满足 D1 单语句参数限制；反向引用由前端推导。
+- `Entry.description: string`、`EntryInput.description?: string`；`DESCRIPTION_MAX_LENGTH = 4000` 按 UTF-16 `string.length` 计量，保留空格换行、允许空描述，标题仍必填。API POST/PUT 缺省描述均清空为 `''`，PATCH completed 保留描述；GET 返回字符串，POST/PUT 返回 `{ id, description }`。JSON 流按 UTF-8 实际字节限制到 65,536，超出返回 413。
+- `0002_entry_description.sql` 为 entries 增加 `TEXT NOT NULL DEFAULT ''`；schema 与迁移必须一起维护。部署先迁移 D1，再更新 API/Web，已有记录描述自动为空。
+- `shared/mentions.ts` 负责 `@[标题](item:ID)` 转义/解析、去重、legacy 合并和 UTF-16 光标查询；标题转义反斜线、方括号和 LF/CR，普通邮箱/畸形标记保持文本。UI 保存时合并有效标记与 legacy 并过滤自身/缺失目标；API 不自动解析描述，仍以已校验的显式 references 为关系来源。
+- `EntryDescriptionEditor.vue` 为 textarea + listbox，支持标题/项目/日期多词筛选、键盘与 IME、中间插入保留后缀、Escape 阻止外层 dialog cancel。`EntryEditor.vue` 初始化无标记旧引用，显式转为标记后移出 legacy，避免删除标记时关系复活。
+- `EntryDescription.vue` 仅 Vue 文本插值，不渲染 HTML/Markdown；可跳转标记必须存在于 API references 且非自身。按 ID 显示目标当前标题，删除后用旧标记标题显示「已删除」。月视图 `CalendarGrid.vue` 的 `UTooltip` 使用 portal 和非交互描述；手机沿用每日详情阅读完整描述。
 - 事项 `date` 是 `YYYY-MM-DD` 日历日期；前端使用 `apps/web/app/utils/dates.ts` 的本地日期辅助函数，避免用 UTC ISO 截断替代而导致日期偏移。
 
 ## Cloudflare 部署交接

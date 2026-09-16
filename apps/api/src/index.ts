@@ -1,5 +1,5 @@
 import { and, count, eq, inArray } from 'drizzle-orm'
-import { PROJECT_COLORS, type AgendaData, type EntryInput, type ProjectInput } from '../../../shared/types'
+import { DESCRIPTION_MAX_LENGTH, PROJECT_COLORS, type AgendaData, type EntryInput, type ProjectInput } from '../../../shared/types'
 import { createDb, type Database } from './db'
 import { accounts, entries, entryReferences, projects } from './db/schema'
 
@@ -34,7 +34,8 @@ async function body(request: Request): Promise<Record<string, unknown>> {
     const { done, value } = await reader.read()
     if (done) break
     size += value.byteLength
-    if (size > 16_384) {
+    // Allow JSON escaping of the description plus up to 50 reference IDs.
+    if (size > 65_536) {
       await reader.cancel()
       fail(413, '请求内容过大')
     }
@@ -63,8 +64,16 @@ function projectInput(value: Record<string, unknown>): ProjectInput {
   return { name, color: value.color as string }
 }
 
-function entryInput(value: Record<string, unknown>, id: string): EntryInput {
+function entryInput(value: Record<string, unknown>, id: string): EntryInput & { description: string } {
   const title = text(value.title, '事项标题', 200)
+  if (value.description !== undefined && typeof value.description !== 'string') {
+    fail(400, '事项描述必须为字符串')
+  }
+  // POST and PUT both normalize omission to ''; PUT replaces rather than preserves it.
+  const description = value.description === undefined ? '' : value.description
+  if (description.length > DESCRIPTION_MAX_LENGTH) {
+    fail(400, `事项描述不能超过 ${DESCRIPTION_MAX_LENGTH} 个 UTF-16 单元`)
+  }
   const projectId = text(value.projectId, '项目 ID', 64)
   const date = text(value.date, '日期', 10)
   const parsed = new Date(`${date}T00:00:00.000Z`)
@@ -78,7 +87,7 @@ function entryInput(value: Record<string, unknown>, id: string): EntryInput {
   }
   const references = [...new Set(value.references as string[])]
   if (references.includes(id)) fail(400, '事项不能引用自身')
-  return { title, projectId, date, completed: value.completed, references }
+  return { title, description, projectId, date, completed: value.completed, references }
 }
 
 async function ensureOwned(db: Database, table: typeof projects | typeof entries, id: string, email: string) {
@@ -100,6 +109,7 @@ async function route(request: Request, env: Env): Promise<Response> {
         .from(projects).where(eq(projects.ownerEmail, email)).orderBy(projects.createdAt, projects.id),
       db.select({
         id: entries.id, projectId: entries.projectId, date: entries.date, title: entries.title,
+        description: entries.description,
         completed: entries.completed, createdAt: entries.createdAt, updatedAt: entries.updatedAt,
       }).from(entries).where(eq(entries.ownerEmail, email)).orderBy(entries.date, entries.createdAt, entries.id),
       db.select({ sourceId: entryReferences.sourceId, targetId: entryReferences.targetId })
@@ -150,7 +160,10 @@ async function route(request: Request, env: Env): Promise<Response> {
       if (row?.count !== data.references.length) fail(400, '引用的事项不存在或不属于当前邮箱')
     }
     const now = new Date().toISOString()
-    const values = { projectId: data.projectId, date: data.date, title: data.title, completed: data.completed, updatedAt: now }
+    const values = {
+      projectId: data.projectId, date: data.date, title: data.title, description: data.description,
+      completed: data.completed, updatedAt: now,
+    }
     const write = entryMatch
       ? db.update(entries).set(values).where(and(eq(entries.id, id), eq(entries.ownerEmail, email)))
       : db.insert(entries).values({ ...values, id, ownerEmail: email, createdAt: now })
@@ -160,7 +173,7 @@ async function route(request: Request, env: Env): Promise<Response> {
       db.delete(entryReferences).where(and(eq(entryReferences.sourceId, id), eq(entryReferences.ownerEmail, email))),
       ...data.references.map(targetId => db.insert(entryReferences).values({ sourceId: id, targetId, ownerEmail: email })),
     ])
-    return json({ id }, entryMatch ? 200 : 201)
+    return json({ id, description: data.description }, entryMatch ? 200 : 201)
   }
 
   if (entryMatch && (method === 'PATCH' || method === 'DELETE')) {

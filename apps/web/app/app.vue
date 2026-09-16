@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { zh_cn } from '@nuxt/ui/locale'
 import type { Entry, Project } from '../../../shared/types'
+import { legacyReferenceIds } from '../../../shared/mentions'
 import { dateKey, formatDate, parseDate } from '~/utils/dates'
 
 const email = ref('')
@@ -34,6 +35,7 @@ function enterAccount(value: string) {
 
 const projectMap = computed(() => new Map(data.value.projects.map(project => [project.id, project])))
 const entryMap = computed(() => new Map(data.value.entries.map(entry => [entry.id, entry])))
+const legacyReferences = computed(() => new Map(data.value.entries.map(entry => [entry.id, legacyReferenceIds(entry)])))
 const filteredEntries = computed(() => data.value.entries.filter(entry => !activeProject.value || entry.projectId === activeProject.value))
 const monthPrefix = computed(() => dateKey(month.value).slice(0, 7))
 const monthEntries = computed(() => filteredEntries.value.filter(entry => entry.date.startsWith(monthPrefix.value)))
@@ -114,11 +116,10 @@ function followReference(entry: Entry | undefined) {
       <header class="topbar"><div class="breadcrumb"><AppIcon name="grid" :size="16" /><span>我的工作台</span><span class="breadcrumb-slash">/</span><strong>项目日历</strong></div><button class="sync-button" :disabled="loading || saving" :title="syncedAt ? `上次同步：${syncedAt.toLocaleTimeString('zh-CN')}` : '从云端读取数据'" @click="refresh"><span class="status-dot" :class="{ 'status-error': error, 'status-busy': loading || saving }" /><span>{{ saving ? '正在保存' : loading ? '正在同步' : error ? '同步失败 · 重试' : syncedAt ? '已与云端同步' : '同步数据' }}</span><AppIcon name="refresh" :size="14" :class="{ spinning: loading }" /></button></header>
       <main class="workspace" :class="{ 'day-view': view === 'day' }">
         <div v-if="error" class="error-banner" role="alert"><span>{{ error }}</span><button class="text-button" :disabled="loading || saving" @click="refresh">重试</button></div>
-        <section class="summary-row" aria-label="本月概览"><div class="summary-counts"><span>总数 <strong>{{ monthEntries.length }}</strong></span><span class="summary-divider" aria-hidden="true">/</span><span>未完成 <strong>{{ monthEntries.length - completedCount }}</strong></span></div><button class="button primary add-main" :disabled="loading || saving" @click="addEntry()"><AppIcon name="plus" :size="18" />添加事项</button></section>
 
         <section class="calendar-card" :aria-busy="loading">
           <header class="calendar-toolbar">
-            <div class="month-heading"><h2>{{ monthLabel }}</h2></div>
+            <div class="month-heading"><h2>{{ monthLabel }}</h2><div class="summary-counts" aria-label="本月概览"><span>总数 <strong>{{ monthEntries.length }}</strong></span><span class="summary-divider" aria-hidden="true">/</span><span>未完成 <strong>{{ monthEntries.length - completedCount }}</strong></span></div></div>
             <div class="calendar-controls">
               <span v-if="currentProject" class="filter-chip"><i class="project-dot" :style="{ background: currentProject.color }" /><span class="truncate">{{ currentProject.name }}</span><button class="icon-button" aria-label="清除项目筛选" @click="activeProject = ''"><AppIcon name="close" :size="13" /></button></span>
               <DatePicker v-if="view === 'day'" class="day-date-input" label="日视图日期" min="0100-01-01" :model-value="selected" @update:model-value="selectDate" />
@@ -131,16 +132,31 @@ function followReference(entry: Entry | undefined) {
                 <button :aria-pressed="view === 'month'" @click="view = 'month'">月视图</button>
                 <button :aria-pressed="view === 'day'" @click="view = 'day'">日视图</button>
               </div>
+              <button class="button primary add-main" :disabled="loading || saving" @click="addEntry()"><AppIcon name="plus" :size="18" />添加事项</button>
             </div>
           </header>
-          <CalendarGrid v-if="view === 'month'" :month="month" :selected="selected" :today="today" :entries="filteredEntries" :projects="data.projects" @select="selectDate" @edit="editEntry" @add="addEntry" />
+          <CalendarGrid v-if="view === 'month'" :month="month" :selected="selected" :today="today" :entries="filteredEntries" :all-entries="data.entries" :projects="data.projects" @select="selectDate" @edit="editEntry" @add="addEntry" />
           <footer v-if="view === 'month'" class="calendar-footer"><span><i class="legend-dot" />点击日期查看详情，点击事项进行编辑</span><span>{{ currentProject ? currentProject.name : '全部项目' }}<span class="footer-divider">·</span>周一为一周的开始</span></footer>
         </section>
 
         <section class="day-panel" aria-labelledby="day-title"><header class="day-panel-heading"><div class="day-title-group"><span class="day-icon"><AppIcon name="calendar" :size="20" /></span><div><h2 id="day-title">{{ formatDate(selected) }}<span v-if="selected === today" class="today-badge">今天</span></h2><p>{{ selectedEntries.length }} 个事项，已完成 {{ selectedCompleted }} 个</p></div></div><button class="button secondary" :disabled="loading || saving" @click="addEntry()"><AppIcon name="plus" :size="16" />添加事项</button></header>
           <div v-if="loading && !syncedAt" class="day-empty"><AppIcon name="refresh" class="spinning" :size="25" /><p>正在从云端取回你的记录…</p></div>
           <div v-else-if="!selectedEntries.length" class="day-empty"><h3>{{ data.projects.length ? '当天暂无事项' : '暂无项目' }}</h3><p v-if="!data.projects.length">创建项目后即可添加事项。</p><button class="text-button" :disabled="loading || saving" @click="data.projects.length ? addEntry() : projectEditor = {}">{{ data.projects.length ? '添加事项' : '创建项目' }}<AppIcon name="arrow" :size="15" /></button></div>
-          <div v-else class="entry-list"><article v-for="entry in selectedEntries" :id="`entry-${entry.id}`" :key="entry.id" class="entry-card" :class="{ 'entry-completed': entry.completed }"><button class="completion-toggle" :class="{ checked: entry.completed }" :aria-label="`${entry.completed ? '标为未完成' : '标为完成'}：${entry.title}`" :aria-pressed="entry.completed" :disabled="saving || loading" @click="toggleEntry(entry)"><AppIcon v-if="entry.completed" name="check" :size="14" /></button><div class="entry-content"><button class="entry-title" @click="editEntry(entry)">{{ entry.title }}</button><div class="entry-meta"><span class="project-tag" :style="{ '--project-color': projectMap.get(entry.projectId)?.color }"><i class="project-dot" />{{ projectMap.get(entry.projectId)?.name }}</span><span class="entry-state">{{ entry.completed ? '已完成' : '进行中' }}</span></div><div v-if="entry.references.length || backlinks.get(entry.id)?.length" class="entry-links"><div v-if="entry.references.length" class="reference-group"><span><AppIcon name="link" :size="12" />引用</span><button v-for="id in entry.references" :key="id" class="reference-chip" :title="entryMap.get(id)?.date" @click="followReference(entryMap.get(id))">{{ entryMap.get(id)?.title || '事项已删除' }}<AppIcon name="arrow" :size="12" /></button></div><div v-if="backlinks.get(entry.id)?.length" class="reference-group"><span><AppIcon name="link" :size="12" />被引用</span><button v-for="source in backlinks.get(entry.id)" :key="source.id" class="reference-chip backlink" :title="source.date" @click="followReference(source)">{{ source.title }}<AppIcon name="arrow" :size="12" /></button></div></div></div><button class="icon-button entry-edit" :aria-label="`编辑事项 ${entry.title}`" :disabled="saving || loading" @click="editEntry(entry)"><AppIcon name="edit" :size="17" /></button></article></div>
+          <div v-else class="entry-list">
+            <article v-for="entry in selectedEntries" :id="`entry-${entry.id}`" :key="entry.id" class="entry-card" :class="{ 'entry-completed': entry.completed }">
+              <button class="completion-toggle" :class="{ checked: entry.completed }" :aria-label="`${entry.completed ? '标为未完成' : '标为完成'}：${entry.title}`" :aria-pressed="entry.completed" :disabled="saving || loading" @click="toggleEntry(entry)"><AppIcon v-if="entry.completed" name="check" :size="14" /></button>
+              <div class="entry-content">
+                <button class="entry-title" @click="editEntry(entry)">{{ entry.title }}</button>
+                <div class="entry-meta"><span class="project-tag" :style="{ '--project-color': projectMap.get(entry.projectId)?.color }"><i class="project-dot" />{{ projectMap.get(entry.projectId)?.name }}</span><span class="entry-state">{{ entry.completed ? '已完成' : '进行中' }}</span></div>
+                <EntryDescription :entry="entry" :entries="data.entries" :projects="data.projects" @follow="followReference" />
+                <div v-if="legacyReferences.get(entry.id)?.length || backlinks.get(entry.id)?.length" class="entry-links">
+                  <div v-if="legacyReferences.get(entry.id)?.length" class="reference-group"><span><AppIcon name="link" :size="12" />引用</span><template v-for="id in legacyReferences.get(entry.id)" :key="id"><EntryTooltip v-if="entryMap.has(id)" :entry="entryMap.get(id)!" :entries="data.entries" :projects="data.projects"><button class="reference-chip" @click="followReference(entryMap.get(id))">@{{ entryMap.get(id)?.title }}<AppIcon name="arrow" :size="12" /></button></EntryTooltip><span v-else class="reference-chip">@事项已删除</span></template></div>
+                  <div v-if="backlinks.get(entry.id)?.length" class="reference-group"><span><AppIcon name="link" :size="12" />被引用</span><EntryTooltip v-for="source in backlinks.get(entry.id)" :key="source.id" :entry="source" :entries="data.entries" :projects="data.projects"><button class="reference-chip backlink" @click="followReference(source)">@{{ source.title }}<AppIcon name="arrow" :size="12" /></button></EntryTooltip></div>
+                </div>
+              </div>
+              <button class="icon-button entry-edit" :aria-label="`编辑事项 ${entry.title}`" :disabled="saving || loading" @click="editEntry(entry)"><AppIcon name="edit" :size="17" /></button>
+            </article>
+          </div>
         </section>
       </main>
     </div>

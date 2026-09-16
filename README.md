@@ -1,6 +1,6 @@
 # 日迹 · Hoshino’s Agenda
 
-以月日历记录项目进展的 WebApp。支持项目筛选、事项完成状态、跨项目/跨日期引用和反向引用跳转，适配桌面与手机。
+以月日历记录项目进展的 WebApp。支持项目筛选、事项完成状态、可选纯文本描述、描述内 @ 引用和反向引用跳转，适配桌面与手机。
 
 输入邮箱即可打开对应的数据空间。邮箱会去除首尾空格并转换为小写；目前无需密码或验证码，任何输入同一邮箱的人都能读取和修改该空间。浏览器仅记住邮箱，项目、事项和引用保存在 Cloudflare D1。
 
@@ -25,13 +25,26 @@ bun run dev
 ## 使用方式
 
 1. 输入邮箱，创建项目并选择颜色。
-2. 选择日历日期，点击「添加事项」，填写标题、所属项目和日期。
+2. 选择日历日期，点击「添加事项」，填写必填标题、所属项目和日期；可选填多行描述，空格和换行按原文保留，HTML/Markdown 作为字面文本显示。
 3. 点击事项左侧方框切换完成状态；点击标题或编辑按钮可修改事项。
-4. 编辑事项时，可按标题、项目名称或日期搜索引用。引用支持跨项目、跨日期和互相引用，每项最多 50 个，不能引用自身。
-5. 每日详情中同时展示「引用」和「被引用」。点击引用会跳转到对应日期，必要时清除项目筛选。
+4. 在描述中输入 `@`，按标题、项目名称或日期筛选事项，点击候选或使用 ↑/↓、Enter 插入；Escape 仅收起候选，保留编辑弹窗。引用支持跨项目、跨日期和互相引用，每项最多 50 个不同目标，不能引用自身。
+5. 每日详情中展示描述内引用和「被引用」；点击引用会跳转到对应日期，必要时清除项目筛选。旧版本的独立引用继续展示，编辑时在「已有引用」中保留或单独移除。
 6. 点击「我的空间」切换邮箱。删除事项会清理其两端引用；删除项目会连同所属事项及相关引用一起删除。
 
-手机端日历显示每日事项数量，点击日期在下方查看和编辑；顶部项目栏可横向滚动。
+桌面月视图悬停或键盘聚焦事项，可查看包含标题、项目、日期、状态和描述的 tooltip；长内容可滚动，Escape 收起。手机端日历显示每日事项数量，点击日期在下方查看和编辑完整描述；顶部项目栏可横向滚动。
+
+### 描述与引用格式
+
+描述上限 **4000 个 UTF-16 单元**（JavaScript `string.length`，例如 `😀` 占 2 个），包含引用标记本身。选择候选会在纯文本中插入稳定 ID 标记：
+
+```text
+准备工作参考 @[首页设计](item:123e4567-e89b-12d3-a456-426614174000)，然后完成本次迭代。
+```
+
+- 这是专用引用语法，不是 Markdown。标题中的 `\`、`[`、`]`、换行、回车分别转义为 `\\`、`\[`、`\]`、`\n`、`\r`；ID 为 1–64 个字母、数字、下划线或连字符。实际新建事项使用 UUID。
+- 普通邮箱、普通 `@` 文本和不完整标记不会生成引用。标记前不能紧接 ASCII 单词/邮箱字符或反斜线；优先用候选插入，避免手工构造。
+- 引用按 ID 关联，同名事项仍是不同目标；目标改名后显示当前标题。删除目标会清理引用关系，原描述标记保留并显示「已删除」。
+- 保存时将有效标记中的目标去重，并与未被手动移除的旧引用合并，过滤自身和已不存在的目标。删除标记会移除该引用；旧引用一旦转为描述标记，随后删除标记也会移除关系。
 
 ## 检查与测试
 
@@ -61,7 +74,7 @@ bun run test --project=mobile
 bun run playwright show-report
 ```
 
-功能覆盖：项目/事项 CRUD、完成切换、邮箱归一化和跨空间读写隔离、双向引用及级联清理、50 个引用上限及引用替换/清空、无效输入、CORS、同步失败重试、切换邮箱时旧请求迟到。桌面与手机流程同时检查页面横向溢出，并输出欢迎页、日历及事项弹窗截图。
+功能覆盖：项目/事项 CRUD、邮箱隔离、双向引用及级联清理、50 引用与最大描述组合、描述缺省/修改/清空及 UTF-16 边界、64KiB 请求字节边界（含流式请求）、CORS、同步失败重试和旧请求隔离。`api` project 同时运行 `mentions.spec.ts` 纯函数测试；桌面/手机覆盖 @ 筛选、键盘及 IME 事件、Escape、中间插入、旧引用兼容、目标改名/删除、字面 HTML/Markdown 和无横向溢出。桌面另验证 tooltip 悬停/聚焦、portal 与 viewport 边界，并输出编辑器、详情及 tooltip 截图。
 
 截图、失败 trace 位于 `test-results/`，HTML 报告位于 `playwright-report/`；这些目录和测试数据库均已被忽略。验证结果及剩余事项统一见 [HANDOFF.md](./HANDOFF.md)。
 
@@ -72,7 +85,7 @@ bun run playwright show-report
 - `apps/api/src/db/schema.ts` 定义账户、项目、事项、引用四张表的类型化映射、索引及约束；`completed` 使用 boolean 模式映射 SQLite 整数。
 - `apps/api/src/db/index.ts` 的 `createDb` 是 D1 binding 到 ORM 实例的统一入口。业务查询、计数和增删改使用 ORM API，查询条件保留当前邮箱范围。
 - 事项及引用通过 ORM 的 `db.batch` 一起写入，底层使用 D1 原子批处理。每个引用分别构造插入语句，避免 50 个引用合并插入时超过 D1 单语句参数上限。
-- 数据库建表与升级仍由 Wrangler 应用 `apps/api/migrations/` 中的 SQL 迁移；已有 `0001_initial.sql` 可直接供 ORM 使用。数据模型调整需同步更新 schema 和新增迁移。
+- 数据库建表与升级由 Wrangler 应用 `apps/api/migrations/` 中的 SQL 迁移；`0001_initial.sql` 建表，`0002_entry_description.sql` 增加非空描述列，旧记录默认 `''`。数据模型调整需同步更新 schema 和新增迁移。
 - 当前未接入 Drizzle Kit 增量迁移生成；后续接入时需以现有数据库的实际约束和索引建立基线。
 
 ## Cloudflare 部署
@@ -94,7 +107,7 @@ bun run --cwd apps/api wrangler d1 create agenda-db
 - `d1_databases[0].binding`：保留 `DB`，与 API 代码一致。
 - `vars.ALLOWED_ORIGINS`：填写完整的前端来源，例如 `https://hoshinos-agenda.pages.dev`。多个来源使用逗号分隔；来源由协议、主机和可选端口组成，不带路径或末尾 `/`，不支持通配符。
 
-然后初始化远程数据库并部署 API：
+然后初始化/升级远程数据库并部署 API。**必须先应用迁移（含 `0002_entry_description.sql`），再部署依赖描述列的 Worker 和前端**；已有数据库同样需要迁移：
 
 ```sh
 bun run db:migrate:remote
@@ -134,6 +147,7 @@ apps/api/src/index.ts  Worker 路由及参数校验
 apps/api/src/db/       Drizzle ORM 初始化与表结构映射
 apps/api/migrations/   D1 SQL 迁移
 shared/types.ts        两端共享的数据类型和项目颜色
+shared/mentions.ts     描述标记转义、解析、引用合并和光标查询
 tests/                 Playwright API/浏览器测试及数据清理 fixture
 playwright.config.ts   本地测试服务、视口和报告配置
 ```
@@ -151,6 +165,12 @@ playwright.config.ts   本地测试服务、视口和报告配置
 | PATCH | `/api/entries/:id` | 仅更新 `completed` |
 | DELETE | `/api/entries/:id` | 删除事项及两端引用 |
 
-事项输入字段为 `title`、`projectId`、`date`（`YYYY-MM-DD`）、`completed`（布尔值）、`references`（事项 ID 数组）。项目名称上限 64 字符，事项标题上限 200 字符，请求体上限 16 KiB；项目颜色取自 `shared/types.ts` 的 `PROJECT_COLORS`。
+事项输入字段为必填的 `title`、`projectId`、`date`（`YYYY-MM-DD`）、`completed`（布尔值）、`references`（事项 ID 数组），以及可选的 `description`（字符串）。项目名称上限 64 字符，事项标题上限 200 字符；项目颜色取自 `shared/types.ts` 的 `PROJECT_COLORS`。
+
+- `description` 不 trim，允许空字符串，最多 **4000 个 UTF-16 单元**；`null`、非字符串或超长返回 400。描述不能替代必填标题。
+- POST 与 PUT 的 `description` 缺省均规范化为 `''`；**PUT 缺省会清空原描述**。PATCH 完成状态不会修改描述。校验失败时事项及引用保持不变。
+- GET `/api/agenda` 的每个事项均返回字符串 `description`；POST/PUT 成功返回 `{ id, description }`。
+- JSON 请求体按实际 UTF-8 字节计量，上限 **64 KiB（65,536 字节，含 JSON 转义及其他字段）**，超过返回 413；恰好 65,536 字节仍可接受。该限制也适用于没有 Content-Length 的请求流。
+- API 将描述作为纯文本存储，引用关系以显式 `references` 为准，不从描述自动创建关系；自定义客户端需要同时提交引用 ID。服务端继续校验引用属于当前邮箱、存在、不是自身，原始数组最多 50 项，再去重。前端仅将已获 API 引用关系的有效标记显示为可跳转引用。
 
 所有查询及写入通过 Drizzle ORM 按 `owner_email` 限定范围，复合外键保证项目、事项和引用属于同一邮箱。事项与引用在同一 ORM/D1 batch 内写入，反向引用由前端推导。日期作为日历日期处理，不使用 UTC 截断计算本地「今天」。

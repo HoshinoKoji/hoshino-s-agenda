@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { Entry, Project } from '../../../../shared/types'
 import { dateKey } from '~/utils/dates'
-const props = defineProps<{ month: Date; selected: string; today: string; entries: Entry[]; projects: Project[] }>()
+const props = defineProps<{ month: Date; selected: string; today: string; entries: Entry[]; allEntries: Entry[]; projects: Project[] }>()
 const emit = defineEmits<{ select: [date: string]; edit: [entry: Entry]; add: [date: string] }>()
 const weekdays = ['一', '二', '三', '四', '五', '六', '日']
 const projectMap = computed(() => new Map(props.projects.map(project => [project.id, project])))
@@ -29,7 +29,12 @@ const days = computed(() => {
       <div v-for="day in days" :key="day.key" class="calendar-day" :class="{ 'other-month': !day.current, 'is-selected': day.key === selected, 'is-today': day.key === today, weekend: day.weekend }" :data-date="day.key">
         <button class="day-select" :aria-label="`选择 ${day.key}${day.key === today ? '，今天' : ''}`" :aria-pressed="day.key === selected" @click="emit('select', day.key)"><span class="day-number">{{ day.number }}</span><span v-if="day.key === today" class="today-label">今天</span><span v-if="day.entries.length" class="mobile-count">{{ day.entries.length }} 项</span></button>
         <button class="day-add" :aria-label="`在 ${day.key} 添加事项`" @click="emit('add', day.key)"><AppIcon name="plus" :size="14" /></button>
-        <div class="day-entries"><button v-for="entry in day.entries.slice(0, 3)" :key="entry.id" class="calendar-entry" :class="{ completed: entry.completed }" :style="{ '--project-color': projectMap.get(entry.projectId)?.color || '#8574D8' }" :title="`${projectMap.get(entry.projectId)?.name} · ${entry.title}`" @click="emit('edit', entry)"><AppIcon v-if="entry.completed" name="check" :size="12" /><i v-else class="entry-tick" /><span>{{ entry.title }}</span><AppIcon v-if="entry.references.length" name="link" :size="11" /></button><button v-if="day.entries.length > 3" class="more-entries" @click="emit('select', day.key)">还有 {{ day.entries.length - 3 }} 项</button></div>
+        <div class="day-entries">
+          <EntryTooltip v-for="entry in day.entries.slice(0, 3)" :key="entry.id" :entry="entry" :entries="allEntries" :projects="projects">
+            <button class="calendar-entry" :class="{ completed: entry.completed }" :style="{ '--project-color': projectMap.get(entry.projectId)?.color || '#8574D8' }" @click="emit('edit', entry)"><AppIcon v-if="entry.completed" name="check" :size="12" /><i v-else class="entry-tick" /><span>{{ entry.title }}</span><AppIcon v-if="entry.references.length" name="link" :size="11" /></button>
+          </EntryTooltip>
+          <button v-if="day.entries.length > 3" class="more-entries" @click="emit('select', day.key)">还有 {{ day.entries.length - 3 }} 项</button>
+        </div>
       </div>
     </div>
   </div>

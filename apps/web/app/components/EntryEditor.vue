@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import type { Entry, EntryInput, Project } from '../../../../shared/types'
+import { DESCRIPTION_MAX_LENGTH, type Entry, type EntryInput, type Project } from '../../../../shared/types'
+import { descriptionReferences, legacyReferenceIds, MAX_ENTRY_REFERENCES, mentionIds } from '../../../../shared/mentions'
 const props = defineProps<{
   entry?: Entry
   date: string
@@ -10,25 +11,33 @@ const props = defineProps<{
   remove: (id: string) => Promise<void>
 }>()
 const emit = defineEmits<{ close: [] }>()
-const form = reactive<EntryInput>({
+const form = reactive<Omit<EntryInput, 'references'> & { description: string }>({
   title: props.entry?.title || '',
+  description: props.entry?.description || '',
   date: props.entry?.date || props.date,
   projectId: props.entry?.projectId || props.projectId || props.projects[0]?.id || '',
   completed: props.entry?.completed || false,
-  references: [...(props.entry?.references || [])],
 })
-const query = ref('')
+const legacy = ref(props.entry ? legacyReferenceIds(props.entry) : [])
 const busy = ref(false)
 const error = ref('')
 const confirming = ref(false)
-const projectMap = computed(() => new Map(props.projects.map(project => [project.id, project])))
-const candidates = computed(() => props.entries.filter(entry => entry.id !== props.entry?.id &&
-  `${entry.title} ${entry.date} ${projectMap.value.get(entry.projectId)?.name}`.toLowerCase().includes(query.value.toLowerCase())).slice().reverse())
+const entryMap = computed(() => new Map(props.entries.map(entry => [entry.id, entry])))
+const references = computed(() => descriptionReferences(form.description, props.entries, props.entry?.id, legacy.value))
 const incoming = computed(() => props.entries.filter(entry => props.entry && entry.id !== props.entry.id && entry.references.includes(props.entry.id)))
+function updateDescription(value: string) {
+  form.description = value
+  // Once explicitly inserted into the description, deletion of that marker removes the relation too.
+  const inline = new Set(mentionIds(value))
+  legacy.value = legacy.value.filter(id => !inline.has(id))
+}
 async function save() {
+  if (busy.value) return
+  if (form.description.length > DESCRIPTION_MAX_LENGTH) { error.value = `描述不能超过 ${DESCRIPTION_MAX_LENGTH} 字符。`; return }
+  if (references.value.length > MAX_ENTRY_REFERENCES) { error.value = '最多引用 50 个不同事项，请移除多余引用后保存。'; return }
   busy.value = true
   error.value = ''
-  try { await props.submit({ ...form, references: [...form.references] }, props.entry?.id); emit('close') }
+  try { await props.submit({ ...form, references: [...references.value] }, props.entry?.id); emit('close') }
   catch (cause) { error.value = (cause as Error).message }
   finally { busy.value = false }
 }
@@ -48,15 +57,14 @@ async function remove() {
       <fieldset :disabled="busy" class="form-fields">
         <label class="field">事项标题<input v-model="form.title" required maxlength="200" placeholder="今天，想推进哪件小事？" autofocus></label>
         <div class="field-row"><label class="field">所属项目<select v-model="form.projectId" required><option v-for="project in projects" :key="project.id" :value="project.id">{{ project.name }}</option></select></label><div class="field"><span>记录日期</span><DatePicker v-model="form.date" label="记录日期" :disabled="busy" :portal="false" /></div></div>
-        <label class="checkbox-label completion-field"><input v-model="form.completed" type="checkbox"><span>已完成这件事项</span><AppIcon name="spark" :size="17" /></label>
-        <section class="reference-picker"><div class="section-label"><span><AppIcon name="link" :size="16" />引用事项</span><span class="muted">已选 {{ form.references.length }} / 50</span></div><p class="field-help">可引用其他项目或日期的事项。</p>
-          <label class="search-field"><AppIcon name="search" :size="17" /><input v-model="query" aria-label="搜索引用事项" placeholder="搜索标题、项目或日期"></label>
-          <div class="reference-options">
-            <label v-for="candidate in candidates" :key="candidate.id" class="reference-option"><input v-model="form.references" type="checkbox" :value="candidate.id" :disabled="form.references.length >= 50 && !form.references.includes(candidate.id)"><span class="reference-option-text"><strong>{{ candidate.title }}</strong><small><i class="project-dot" :style="{ background: projectMap.get(candidate.projectId)?.color }" />{{ projectMap.get(candidate.projectId)?.name }}<span>·</span>{{ candidate.date }}</small></span></label>
-            <p v-if="!candidates.length" class="small-empty">{{ entries.length > (entry ? 1 : 0) ? '没有找到相关事项' : '其他事项创建后，就可以在这里引用了。' }}</p>
-          </div>
+        <EntryDescriptionEditor :model-value="form.description" :entries="entries" :projects="projects" :references="references" :self-id="entry?.id" :disabled="busy" @update:model-value="updateDescription" />
+        <section v-if="legacy.length" class="legacy-references">
+          <div class="section-label"><span><AppIcon name="link" :size="16" />已有引用</span></div>
+          <p class="field-help">这些引用尚未写入描述，可单独移除。</p>
+          <div class="reference-group"><button v-for="id in legacy" :key="id" type="button" class="reference-chip" :aria-label="`移除引用 @${entryMap.get(id)?.title || '事项已删除'}`" @click="legacy = legacy.filter(value => value !== id)">@{{ entryMap.get(id)?.title || '事项已删除' }}<AppIcon name="close" :size="12" /></button></div>
         </section>
-        <div v-if="incoming.length" class="backlinks-note"><AppIcon name="link" :size="15" /><span>被 {{ incoming.length }} 个事项引用：{{ incoming.map(item => item.title).join('、') }}</span></div>
+        <label class="checkbox-label completion-field"><input v-model="form.completed" type="checkbox"><span>已完成这件事项</span><AppIcon name="spark" :size="17" /></label>
+        <div v-if="incoming.length" class="backlinks-note"><AppIcon name="link" :size="15" /><span>被 {{ incoming.length }} 个事项引用：{{ incoming.map(item => `@${item.title}`).join('、') }}</span></div>
         <div v-if="confirming" class="delete-confirm"><p>确定删除这个事项？其他事项中指向它的引用也会移除。</p><button type="button" class="button danger" @click="remove">确认删除事项</button><button type="button" class="button ghost" @click="confirming = false">取消</button></div>
         <p v-if="error" class="form-error" role="alert">{{ error }}</p>
         <footer class="form-footer"><button v-if="entry && !confirming" type="button" class="icon-button danger-text" aria-label="删除事项" @click="confirming = true"><AppIcon name="trash" /></button><span class="spacer" /><button type="button" class="button secondary" @click="emit('close')">取消</button><button class="button primary" type="submit">{{ busy ? '保存中…' : entry ? '保存修改' : '添加事项' }}<AppIcon v-if="!busy" name="check" :size="17" /></button></footer>
