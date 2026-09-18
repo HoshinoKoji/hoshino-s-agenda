@@ -1,6 +1,35 @@
 import { test, expect } from './fixtures'
 import { PROJECT_COLORS } from '../shared/types'
 
+test('项目排序持久化、追加、编辑保序与无效请求隔离', async ({ space, otherSpace }) => {
+  const a = await space.project('甲')
+  const b = await space.project('乙')
+  const c = await space.project('丙')
+  const foreign = await otherSpace.project('其他空间')
+  const original = [a.id, b.id, c.id]
+  const ordered = [c.id, a.id, b.id]
+  const order = (projectIds: unknown, previousIds: unknown = original) => space.api.put('/api/projects/order', { data: { projectIds, previousIds } })
+  expect((await order(ordered)).status()).toBe(200)
+  expect((await space.agenda()).projects.map(project => project.id)).toEqual(ordered)
+  const before = await space.agenda()
+  for (const invalid of [[a.id, a.id, b.id], [a.id], [a.id, b.id, foreign.id], null, 'invalid', [123]]) {
+    expect((await order(invalid, ordered)).status()).toBe(400)
+    expect(await space.agenda()).toEqual(before)
+  }
+  expect((await order(original)).status()).toBe(409)
+  expect((await otherSpace.api.put('/api/projects/order', { data: { projectIds: ordered, previousIds: ordered } })).status()).toBe(400)
+  expect((await otherSpace.agenda()).projects).toEqual([foreign])
+  await space.api.put(`/api/projects/${a.id}`, { data: { name: '改名', color: a.color } })
+  expect((await space.agenda()).projects.map(project => project.id)).toEqual(ordered)
+  const d = await space.project('新项目')
+  expect((await space.agenda()).projects.map(project => project.id)).toEqual([...ordered, d.id])
+  expect((await order(original, ordered)).status()).toBe(400)
+  await space.api.delete(`/api/projects/${a.id}`)
+  const remaining = [c.id, b.id, d.id]
+  expect((await space.agenda()).projects.map(project => project.id)).toEqual(remaining)
+  expect((await order([...remaining].reverse(), remaining)).status()).toBe(200)
+})
+
 test('项目与事项 CRUD、跨项目/日期互相引用、两端级联清理', async ({ space }) => {
   const project = await space.project('  个人网站  ')
   const reading = await space.project('阅读计划', PROJECT_COLORS[1])

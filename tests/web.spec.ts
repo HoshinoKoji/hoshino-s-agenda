@@ -28,6 +28,94 @@ async function editSidebarProject(page: Page, name: string) {
   await expect(page.getByRole('textbox', { name: '项目名称' })).toBeFocused()
 }
 
+test('项目排序拖拽、菜单、刷新、视图同步与保存失败', async ({ page, space, isMobile }, testInfo) => {
+  const a = await space.project('甲')
+  const b = await space.project('乙')
+  const c = await space.project('丙')
+  await enter(page, space.email)
+  const names = page.locator('.project-nav-row .truncate')
+  await expect(names).toHaveText(['甲', '乙', '丙'])
+  let releaseSave!: () => void
+  let releaseRefresh!: () => void
+  let refreshing = false
+  const saveGate = new Promise<void>(resolve => { releaseSave = resolve })
+  const refreshGate = new Promise<void>(resolve => { releaseRefresh = resolve })
+  await page.route('**/api/projects/order', async route => { await saveGate; await route.continue() })
+  await page.route('**/api/agenda', async route => { refreshing = true; await refreshGate; await route.continue() })
+  await page.getByRole('button', { name: '项目操作 甲', exact: true }).click()
+  await expect(page.getByRole('menuitem', { name: '上移', exact: true })).toBeDisabled()
+  await page.getByRole('menuitem', { name: '下移', exact: true }).click()
+  const pending = page.getByRole('status').filter({ hasText: '正在调整项目顺序' })
+  await expect(pending).toBeVisible()
+  await expect(page.getByRole('button', { name: '拖动排序 甲', exact: true })).toBeDisabled()
+  await expect(page.getByRole('button', { name: '项目操作 甲', exact: true })).toBeDisabled()
+  await noOverflow(page)
+  await page.screenshot({ path: testInfo.outputPath('project-sort-pending.png') })
+  releaseSave()
+  await expect.poll(() => refreshing).toBe(true)
+  await expect(pending).toBeVisible()
+  releaseRefresh()
+  await expect(names).toHaveText(['乙', '甲', '丙'])
+  await expect(pending).toBeHidden()
+  await page.unroute('**/api/projects/order')
+  await page.unroute('**/api/agenda')
+  await expect(page.locator('.sync-button')).toBeEnabled()
+  await page.getByRole('button', { name: '项目操作 丙', exact: true }).click()
+  await expect(page.getByRole('menuitem', { name: '下移', exact: true })).toBeDisabled()
+  await page.keyboard.press('Escape')
+
+  const handle = page.getByRole('button', { name: '拖动排序 乙', exact: true })
+  await handle.scrollIntoViewIfNeeded()
+  if (isMobile) await page.locator('.project-nav').evaluate(nav => {
+    const row = nav.querySelector('.project-nav-row')!
+    nav.scrollLeft += row.getBoundingClientRect().left - nav.getBoundingClientRect().left
+  })
+  const start = (await handle.boundingBox())!
+  const target = (await page.locator(`[data-project-id="${a.id}"]`).boundingBox())!
+  const x = start.x + start.width / 2
+  const y = start.y + start.height / 2
+  const endX = isMobile ? target.x + target.width - 10 : x
+  const endY = isMobile ? y : target.y + target.height - 4
+  if (isMobile) {
+    const session = await page.context().newCDPSession(page)
+    await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] })
+    await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: endX, y: endY }] })
+    await expect(page.locator('.project-dragging')).toHaveCount(1)
+    await page.screenshot({ path: testInfo.outputPath('project-sort-drag.png') })
+    await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+    await session.detach()
+  } else {
+    await page.mouse.move(x, y)
+    await page.mouse.down()
+    await page.mouse.move(endX, endY, { steps: 8 })
+    await expect(page.locator('.project-dragging')).toHaveCount(1)
+    await page.screenshot({ path: testInfo.outputPath('project-sort-drag.png') })
+    await page.mouse.up()
+  }
+  await expect(names).toHaveText(['甲', '乙', '丙'])
+  await expect(page.locator('.sync-button')).toBeEnabled()
+  expect((await space.agenda()).projects.map(project => project.id)).toEqual([a.id, b.id, c.id])
+  await expect(page.getByRole('button', { name: /^全部项目/ })).toHaveAttribute('aria-pressed', 'true')
+  await page.getByRole('button', { name: '项目操作 丙', exact: true }).click()
+  await page.getByRole('menuitem', { name: '上移', exact: true }).click()
+  await expect(names).toHaveText(['甲', '丙', '乙'])
+  await page.reload()
+  await expect(names).toHaveText(['甲', '丙', '乙'])
+  await page.getByRole('combobox', { name: '工作台视图' }).click()
+  await page.getByRole('option', { name: '项目总览', exact: true }).click()
+  await expect(page.locator('.overview-project h3')).toHaveText(['甲', '丙', '乙'])
+  await page.getByRole('button', { name: '为 甲 添加事项', exact: true }).click()
+  await expect(page.getByLabel('所属项目').locator('option')).toHaveText(['甲', '丙', '乙'])
+  await page.getByRole('button', { name: '取消', exact: true }).click()
+  await page.route('**/api/projects/order', route => route.fulfill({ status: 503, json: { error: '排序保存失败' } }))
+  await page.getByRole('button', { name: '项目操作 甲', exact: true }).click()
+  await page.getByRole('menuitem', { name: '下移', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('排序保存失败')
+  await expect(pending).toBeHidden()
+  await expect(names).toHaveText(['甲', '丙', '乙'])
+  await noOverflow(page)
+})
+
 test('邮箱进入、项目和事项编辑、完成、双向引用跳转与删除', async ({ page, space, otherSpace, baseURL }, testInfo) => {
   test.setTimeout(60_000)
   const errors: string[] = []
@@ -258,7 +346,7 @@ test('项目总览分组、无日期事项管理、筛选保留与跨视图引�
   await nav.getByRole('button', { name: /^阅读计划/ }).click()
   const projectActions = nav.getByRole('button', { name: '项目操作 网站计划', exact: true })
   await projectActions.click()
-  await expect(page.getByRole('menuitem')).toHaveText(['转到项目总览', '编辑'])
+  await expect(page.getByRole('menuitem')).toHaveText(['转到项目总览', '编辑', '↑上移', '↓下移'])
   await noOverflow(page)
   await page.screenshot({ path: testInfo.outputPath('project-actions.png'), animations: 'disabled' })
   await page.keyboard.press('Escape')

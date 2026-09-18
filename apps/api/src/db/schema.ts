@@ -11,6 +11,7 @@ export const projects = sqliteTable('projects', {
   ownerEmail: text('owner_email').notNull().references(() => accounts.email, { onDelete: 'cascade' }),
   name: text('name').notNull(),
   color: text('color').notNull(),
+  sortOrder: integer('sort_order').notNull().default(0),
   createdAt: text('created_at').notNull(),
 }, table => [
   unique().on(table.id, table.ownerEmail),

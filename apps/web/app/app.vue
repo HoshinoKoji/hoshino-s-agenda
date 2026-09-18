@@ -14,7 +14,7 @@ const activeProject = ref('')
 const showAccount = ref(false)
 const projectEditor = ref<{ project?: Project } | null>(null)
 const entryEditor = ref<{ entry?: Entry; date: string | null; projectId: string } | null>(null)
-const { data, loading, saving, error, syncedAt, refresh, saveProject, saveEntry, deleteProject, deleteEntry, toggleEntry } = useAgenda(email)
+const { data, loading, saving, reordering, error, syncedAt, refresh, saveProject, saveEntry, deleteProject, deleteEntry, toggleEntry, reorderProjects } = useAgenda(email)
 let clock: ReturnType<typeof setInterval> | undefined
 
 onMounted(() => {
@@ -109,7 +109,8 @@ function followReference(entry: Entry | undefined) {
   <div v-else class="app-shell">
     <aside class="sidebar">
       <a class="brand" href="/" aria-label="日迹首页"><span class="brand-mark"><AppIcon name="spark" :size="24" /></span><span>日迹<span class="brand-en">HOSHINO’S AGENDA</span></span></a>
-      <nav class="project-nav" aria-label="项目筛选"><button class="nav-item all-projects" :class="{ active: !activeProject }" :aria-pressed="!activeProject" @click="activeProject = ''"><AppIcon name="calendar" :size="19" /><span>全部项目</span><span class="count">{{ data.entries.length }}</span></button><div class="nav-heading"><span>我的项目</span><button class="icon-button" aria-label="新建项目" :disabled="loading || saving" @click="projectEditor = {}"><AppIcon name="plus" :size="17" /></button></div><div class="project-list"><div v-for="project in data.projects" :key="project.id" class="project-nav-row" :class="{ active: activeProject === project.id }"><button class="nav-item" :aria-pressed="activeProject === project.id" @click="activeProject = project.id"><i class="project-dot" :style="{ background: project.color }" /><span class="truncate">{{ project.name }}</span><span class="count">{{ projectCounts.get(project.id) || 0 }}</span></button><ProjectActions :name="project.name" :disabled="saving || loading" @overview="activeProject = project.id; workspaceView = 'overview'" @edit="projectEditor = { project }" /></div><p v-if="!data.projects.length && !loading" class="sidebar-empty">(空)</p></div></nav>
+      <nav class="project-nav" aria-label="项目筛选"><button class="nav-item all-projects" :class="{ active: !activeProject }" :aria-pressed="!activeProject" @click="activeProject = ''"><AppIcon name="calendar" :size="19" /><span>全部项目</span><span class="count">{{ data.entries.length }}</span></button><div class="nav-heading"><span>我的项目</span><button class="icon-button" aria-label="新建项目" :disabled="loading || saving" @click="projectEditor = {}"><AppIcon name="plus" :size="17" /></button></div><ProjectList :projects="data.projects" :active-project="activeProject" :counts="projectCounts" :busy="loading || saving" @select="activeProject = $event" @overview="activeProject = $event; workspaceView = 'overview'" @edit="projectEditor = { project: $event }" @reorder="reorderProjects" /></nav>
+      <div v-if="reordering" class="project-order-status" role="status" aria-live="polite"><AppIcon name="refresh" :size="16" class="spinning" /><span><strong>正在调整项目顺序…</strong><small>正在保存并同步，请稍候</small></span></div>
       <div class="sidebar-bottom"><button class="account-button" :disabled="saving" @click="showAccount = true"><span class="avatar">{{ email[0]?.toUpperCase() }}</span><span class="account-label"><strong>我的空间</strong><small>{{ email }}</small></span><AppIcon name="chevronDown" :size="15" /></button></div>
     </aside>
 

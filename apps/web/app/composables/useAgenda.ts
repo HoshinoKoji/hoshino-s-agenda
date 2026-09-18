@@ -4,6 +4,8 @@ export function useAgenda(email: Ref<string>) {
   const data = ref<AgendaData>({ projects: [], entries: [] })
   const loading = ref(false)
   const saving = ref(false)
+  const orderingAccount = ref('')
+  const reordering = computed(() => !!orderingAccount.value && orderingAccount.value === email.value)
   const error = ref('')
   const syncedAt = ref<Date | null>(null)
   let generation = 0
@@ -69,5 +71,15 @@ export function useAgenda(email: Ref<string>) {
     catch (cause) { error.value = (cause as Error).message }
   }
 
-  return { data, loading, saving, error, syncedAt, refresh, saveProject, saveEntry, deleteProject, deleteEntry, toggleEntry }
+  async function reorderProjects(projectIds: string[]) {
+    if (saving.value || loading.value) return
+    const previousIds = data.value.projects.map(project => project.id)
+    const account = email.value
+    orderingAccount.value = account
+    try { await mutate('/projects/order', 'PUT', { projectIds, previousIds }) }
+    catch (cause) { if (email.value === account) error.value = (cause as Error).message }
+    finally { orderingAccount.value = '' }
+  }
+
+  return { data, loading, saving, reordering, error, syncedAt, refresh, saveProject, saveEntry, deleteProject, deleteEntry, toggleEntry, reorderProjects }
 }

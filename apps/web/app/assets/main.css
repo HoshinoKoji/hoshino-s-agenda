@@ -65,6 +65,19 @@ button { transition: background .15s, color .15s; }
 .project-nav-row .nav-item { min-width: 0; }
 .project-menu-trigger { margin-right: 5px; width: 28px; }
 .project-menu-trigger[data-state='open'] { background: var(--lavender); color: var(--primary); }
+.project-list { position: relative; }
+.project-nav-row { position: relative; }
+.project-drag-handle { flex-shrink: 0; width: 22px; min-height: 32px; padding: 2px; cursor: grab; touch-action: none; }
+.project-drag-handle:active { cursor: grabbing; }
+.project-dragging { opacity: .45; }
+.project-drop-before::before, .project-drop-end::after { content: ''; position: absolute; left: 0; right: 0; height: 2px; background: var(--primary); pointer-events: none; }
+.project-drop-before::before { top: -2px; }
+.project-drop-end::after { bottom: -2px; }
+.project-move-icon { width: 16px; text-align: center; color: #98919f; }
+.project-order-status { display: flex; align-items: center; gap: 9px; flex-shrink: 0; margin-top: 10px; padding: 10px; border: 1px solid #efd2df; border-radius: 8px; background: #fff4f8; color: var(--primary); }
+.project-order-status > svg { flex-shrink: 0; }
+.project-order-status strong { display: block; font-size: 12px; font-weight: 500; }
+.project-order-status small { display: block; margin-top: 4px; font-size: 10px; color: var(--muted); }
 .project-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; background: var(--project-color); }
 .sidebar-empty { font-size: 12px; line-height: 2; color: #aaa5b1; padding: 14px 12px; }
 .sidebar-bottom { margin-top: auto; padding-top: 30px; }
@@ -287,6 +300,9 @@ input[type='checkbox'] { accent-color: var(--primary); width: 16px; height: 16px
   .account-label { max-width: 170px; }
   .project-nav { grid-column: 1 / -1; display: flex; gap: 8px; overflow-x: auto; padding: 3px; margin-top: 0; }
   .project-list { display: flex; gap: 8px; }
+  .project-order-status { grid-column: 1 / -1; margin-top: -6px; }
+  .project-drop-before::before { left: -4px; top: 0; bottom: 0; right: auto; width: 2px; height: auto; }
+  .project-drop-end::after { right: -4px; top: 0; bottom: 0; left: auto; width: 2px; height: auto; }
   .project-nav > *, .project-list > * { flex-shrink: 0; }
   .nav-item { white-space: nowrap; width: auto; min-height: 36px; padding: 8px 11px; font-size: 12px; }
   .nav-item .truncate { max-width: 180px; }

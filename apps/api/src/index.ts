@@ -1,4 +1,4 @@
-import { and, count, eq, inArray } from 'drizzle-orm'
+import { and, count, eq, inArray, max } from 'drizzle-orm'
 import { DESCRIPTION_MAX_LENGTH, type AgendaData, type EntryInput, type ProjectInput } from '../../../shared/types'
 import { createDb, type Database } from './db'
 import { accounts, entries, entryReferences, projects } from './db/schema'
@@ -108,7 +108,7 @@ async function route(request: Request, env: Env): Promise<Response> {
   if (path === '/api/agenda' && method === 'GET') {
     const [projectRows, entryRows, referenceRows] = await db.batch([
       db.select({ id: projects.id, name: projects.name, color: projects.color, createdAt: projects.createdAt })
-        .from(projects).where(eq(projects.ownerEmail, email)).orderBy(projects.createdAt, projects.id),
+        .from(projects).where(eq(projects.ownerEmail, email)).orderBy(projects.sortOrder, projects.createdAt, projects.id),
       db.select({
         id: entries.id, projectId: entries.projectId, date: entries.date, title: entries.title,
         description: entries.description,
@@ -129,12 +129,29 @@ async function route(request: Request, env: Env): Promise<Response> {
 
   if (path === '/api/projects' && method === 'POST') {
     const data = projectInput(await body(request))
+    const last = await db.select({ value: max(projects.sortOrder) }).from(projects).where(eq(projects.ownerEmail, email)).get()
     const project = { id: crypto.randomUUID(), ...data, createdAt: new Date().toISOString() }
     await db.batch([
       db.insert(accounts).values({ email }).onConflictDoNothing({ target: accounts.email }),
-      db.insert(projects).values({ ...project, ownerEmail: email }),
+      db.insert(projects).values({ ...project, ownerEmail: email, sortOrder: (last?.value ?? -1) + 1 }),
     ])
     return json(project, 201)
+  }
+
+  if (path === '/api/projects/order' && method === 'PUT') {
+    const data = await body(request)
+    const validIds = (value: unknown): value is string[] => Array.isArray(value) &&
+      value.every(id => typeof id === 'string' && id.length > 0 && id.length <= 64) && new Set(value).size === value.length
+    if (!validIds(data.projectIds) || !validIds(data.previousIds)) fail(400, '排序需提供不重复的项目 ID 列表及原顺序')
+    const ids = data.projectIds as string[]
+    const previous = data.previousIds as string[]
+    const current = await db.select({ id: projects.id }).from(projects).where(eq(projects.ownerEmail, email))
+      .orderBy(projects.sortOrder, projects.createdAt, projects.id)
+    if (ids.length !== current.length || ids.some(id => !current.some(project => project.id === id))) fail(400, '排序必须包含当前邮箱的全部项目')
+    if (previous.length !== current.length || current.some((project, index) => project.id !== previous[index])) fail(409, '项目顺序已变化，请同步后重试')
+    const writes = ids.map((id, sortOrder) => db.update(projects).set({ sortOrder }).where(and(eq(projects.id, id), eq(projects.ownerEmail, email))))
+    if (writes.length) await db.batch([writes[0]!, ...writes.slice(1)])
+    return json({ ok: true })
   }
 
   const projectMatch = path.match(/^\/api\/projects\/([\w-]+)$/)

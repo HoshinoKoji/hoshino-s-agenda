@@ -25,7 +25,7 @@ bun run dev
 
 ## 使用方式
 
-1. 输入邮箱，创建项目并选择颜色。侧栏项目右侧的「…」菜单提供「转到项目总览」（同时筛选该项目）和「编辑」。
+1. 输入邮箱，创建项目并选择颜色。侧栏项目右侧的「…」菜单提供「转到项目总览」（同时筛选该项目）、「编辑」、「上移 / 下移」。拖动项目左侧手柄也可排序（桌面上下拖动，手机左右拖动）；按 Escape 或拖到列表外取消。顺序保存到云端，侧栏、总览和事项表单共用，刷新后保留，新建项目追加到末尾。保存失败保留原顺序并显示错误；旧页面排序提示冲突时，点击同步后重试。
 2. 在 header 面包屑中切换「项目日历 / 项目总览」。总览按项目展示所有日期的事项（含空项目），未完成优先，同状态下未设日期优先，再按日期排列；左侧项目筛选对两种视图均有效。切换时保留当前筛选、日历日期和月 / 日视图，刷新默认回到月日历。
 3. 在日历或总览项目组中点击「+事项」，填写必填标题和所属项目。日历中默认选中日期，总览中默认「不设日期」；可随时补充或清除日期。无日期事项显示「未设日期」，计入总览及侧栏数量，不计入月 / 日日历和本月统计。清除日期并保存后自动打开总览。
 4. 点击事项左侧方框切换完成状态；点击标题或编辑按钮可修改事项。可选填多行描述，空格和换行按原文保留，HTML/Markdown 作为字面文本显示。
@@ -89,6 +89,7 @@ bun run playwright show-report
 - 事项及引用通过 ORM 的 `db.batch` 一起写入，底层使用 D1 原子批处理。每个引用分别构造插入语句，避免 50 个引用合并插入时超过 D1 单语句参数上限。
 - 数据库建表与升级由 Wrangler 应用 `apps/api/migrations/` 中的 SQL 迁移；`0001_initial.sql` 建表，`0002_entry_description.sql` 增加非空描述列，旧记录默认 `''`；`0003_optional_entry_date.sql` 将日期改为可空，重建事项表前备份并移除引用表，再恢复引用和索引，避免外键级联丢失引用。数据模型调整需同步更新 schema 和新增迁移。
 - 当前未接入 Drizzle Kit 增量迁移生成；后续接入时需以现有数据库的实际约束和索引建立基线。
+- `0004_project_sort_order.sql` 增加项目 `sort_order` 列；旧项目默认 0，仍按创建时间和 ID 保持原顺序。排序接口通过 Drizzle batch 原子更新全部项目位置；API 返回的项目数组已排序，排序值属于内部存储字段。
 
 ## Cloudflare 部署
 
@@ -114,7 +115,7 @@ bun run --cwd apps/api wrangler d1 create agenda-db
 
 ### 2. 一次部署前端和 API
 
-**先应用 D1 迁移（含 `0002_entry_description.sql` 和 `0003_optional_entry_date.sql`），再部署**；已有数据库同样需要检查迁移：
+**先应用 D1 迁移（至 `0004_project_sort_order.sql`），再部署**；已有数据库同样需要检查迁移：
 
 ```sh
 bun run db:migrate:remote
@@ -157,12 +158,15 @@ playwright.config.ts   本地测试服务、视口和报告配置
 | GET | `/api/agenda` | 当前邮箱全部项目与事项（含引用 ID） |
 | POST | `/api/projects` | 创建项目：`name`、`color` |
 | PUT / DELETE | `/api/projects/:id` | 修改或级联删除项目 |
+| PUT | `/api/projects/order` | 保存项目顺序：`projectIds`（新顺序）、`previousIds`（页面加载的原顺序） |
 | POST | `/api/entries` | 创建事项 |
 | PUT | `/api/entries/:id` | 修改事项及引用 |
 | PATCH | `/api/entries/:id` | 仅更新 `completed` |
 | DELETE | `/api/entries/:id` | 删除事项及两端引用 |
 
 事项输入字段为必填的 `title`、`projectId`、`date`（`YYYY-MM-DD` 或 `null`）、`completed`（布尔值）、`references`（事项 ID 数组），以及可选的 `description`（字符串）。项目名称上限 64 字符，事项标题上限 200 字符；项目颜色支持六位 HEX RGB，`shared/types.ts` 的 `PROJECT_COLORS` 提供预设颜色。
+
+项目排序的两个字段均为无重复 ID 数组；新顺序必须完整包含当前邮箱所有项目，缺失、重复或其他邮箱 ID 返回 400，原顺序与读取到的当前顺序不符返回 409。校验失败不写入。所有位置在一个批处理中保存，项目内容、事项及引用保持不变。
 
 - `date: null` 表示未设日期，POST/PUT 都需显式传入 `date`；省略、空字符串、非字符串/非 null 或无效日期返回 400。GET 返回字符串或 `null`；PATCH 完成状态保留日期。
 - `description` 不 trim，允许空字符串，最多 **4000 个 UTF-16 单元**；`null`、非字符串或超长返回 400。描述不能替代必填标题。
