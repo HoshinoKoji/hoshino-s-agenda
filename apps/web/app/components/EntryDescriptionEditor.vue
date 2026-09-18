@@ -24,7 +24,7 @@ const candidates = computed(() => {
   if (!query.value) return []
   const terms = query.value.query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean)
   return props.entries.filter(entry => {
-    const search = `${entry.title} ${projectMap.value.get(entry.projectId)?.name || ''} ${entry.date}`.toLocaleLowerCase()
+    const search = `${entry.title} ${projectMap.value.get(entry.projectId)?.name || ''} ${entry.date ?? '未设日期'}`.toLocaleLowerCase()
     return entry.id !== props.selfId && terms.every(term => search.includes(term))
   }).slice().reverse()
 })
@@ -122,7 +122,7 @@ function keyup(event: KeyboardEvent) {
           type="button" role="option" tabindex="-1" :aria-selected="index === active" class="reference-option"
           :aria-disabled="references.length >= MAX_ENTRY_REFERENCES && !references.includes(candidate.id)"
           @pointerdown.prevent @click="choose(candidate)"
-        ><span class="reference-option-text"><strong>@{{ candidate.title }}</strong><small><i class="project-dot" :style="{ background: projectMap.get(candidate.projectId)?.color }" />{{ projectMap.get(candidate.projectId)?.name }}<span>·</span>{{ candidate.date }}</small></span></button>
+        ><span class="reference-option-text"><strong>@{{ candidate.title }}</strong><small><i class="project-dot" :style="{ background: projectMap.get(candidate.projectId)?.color }" />{{ projectMap.get(candidate.projectId)?.name }}<span>·</span>{{ candidate.date ?? '未设日期' }}</small></span></button>
       </div>
       <p v-if="!candidates.length" class="small-empty" role="status">没有找到相关事项，可继续作为纯文本输入。</p>
     </div>

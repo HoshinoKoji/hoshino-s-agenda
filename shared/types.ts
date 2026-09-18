@@ -13,7 +13,8 @@ export interface Project {
 export interface Entry {
   id: string
   projectId: string
-  date: string
+  // null means this entry has not been assigned a calendar date.
+  date: string | null
   title: string
   description: string
   completed: boolean
@@ -34,7 +35,7 @@ export interface ProjectInput {
 
 export interface EntryInput {
   projectId: string
-  date: string
+  date: string | null
   title: string
   // Plain text, preserving whitespace. Omission on POST or PUT becomes an empty string.
   description?: string

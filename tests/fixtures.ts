@@ -16,7 +16,7 @@ export class Space {
     return response.json()
   }
 
-  async entry(projectId: string, title: string, date: string, references: string[] = [], description?: string): Promise<string> {
+  async entry(projectId: string, title: string, date: string | null, references: string[] = [], description?: string): Promise<string> {
     const data: EntryInput = { projectId, title, date, references, completed: false, ...(description === undefined ? {} : { description }) }
     const response = await this.api.post('/api/entries', { data })
     expect(response.status()).toBe(201)

@@ -22,7 +22,7 @@ export const entries = sqliteTable('entries', {
   id: text('id').primaryKey(),
   ownerEmail: text('owner_email').notNull().references(() => accounts.email, { onDelete: 'cascade' }),
   projectId: text('project_id').notNull(),
-  date: text('date').notNull(),
+  date: text('date'),
   title: text('title').notNull(),
   description: text('description').notNull().default(''),
   completed: integer('completed', { mode: 'boolean' }).notNull().default(false),

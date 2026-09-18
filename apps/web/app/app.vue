@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { zh_cn } from '@nuxt/ui/locale'
-import type { Entry, Project } from '../../../shared/types'
-import { legacyReferenceIds } from '../../../shared/mentions'
+import type { Entry, EntryInput, Project } from '../../../shared/types'
 import { dateKey, formatDate, parseDate } from '~/utils/dates'
 
 const email = ref('')
@@ -9,11 +8,12 @@ const hydrated = ref(false)
 const today = ref(dateKey(new Date()))
 const selected = ref(today.value)
 const view = ref<'month' | 'day'>('month')
+const workspaceView = ref<'calendar' | 'overview'>('calendar')
 const month = ref(new Date(new Date().getFullYear(), new Date().getMonth(), 1, 12))
 const activeProject = ref('')
 const showAccount = ref(false)
 const projectEditor = ref<{ project?: Project } | null>(null)
-const entryEditor = ref<{ entry?: Entry; date: string } | null>(null)
+const entryEditor = ref<{ entry?: Entry; date: string | null; projectId: string } | null>(null)
 const { data, loading, saving, error, syncedAt, refresh, saveProject, saveEntry, deleteProject, deleteEntry, toggleEntry } = useAgenda(email)
 let clock: ReturnType<typeof setInterval> | undefined
 
@@ -34,11 +34,9 @@ function enterAccount(value: string) {
 }
 
 const projectMap = computed(() => new Map(data.value.projects.map(project => [project.id, project])))
-const entryMap = computed(() => new Map(data.value.entries.map(entry => [entry.id, entry])))
-const legacyReferences = computed(() => new Map(data.value.entries.map(entry => [entry.id, legacyReferenceIds(entry)])))
 const filteredEntries = computed(() => data.value.entries.filter(entry => !activeProject.value || entry.projectId === activeProject.value))
 const monthPrefix = computed(() => dateKey(month.value).slice(0, 7))
-const monthEntries = computed(() => filteredEntries.value.filter(entry => entry.date.startsWith(monthPrefix.value)))
+const monthEntries = computed(() => filteredEntries.value.filter(entry => entry.date?.startsWith(monthPrefix.value)))
 const completedCount = computed(() => monthEntries.value.filter(entry => entry.completed).length)
 const selectedEntries = computed(() => filteredEntries.value.filter(entry => entry.date === selected.value))
 const selectedCompleted = computed(() => selectedEntries.value.filter(entry => entry.completed).length)
@@ -49,13 +47,6 @@ const projectCounts = computed(() => {
   const counts = new Map<string, number>()
   for (const entry of data.value.entries) counts.set(entry.projectId, (counts.get(entry.projectId) || 0) + 1)
   return counts
-})
-const backlinks = computed(() => {
-  const map = new Map<string, Entry[]>()
-  for (const entry of data.value.entries) {
-    for (const id of entry.references) map.set(id, [...(map.get(id) || []), entry])
-  }
-  return map
 })
 
 watch(() => data.value.projects, projects => {
@@ -81,20 +72,29 @@ function changeDay(delta: number) {
   if (date.getFullYear() < 100 || date.getFullYear() > 9999) return
   selectDate(dateKey(date))
 }
-function addEntry(date = selected.value) {
-  selectDate(date)
+function addEntry(date: string | null = selected.value, projectId = activeProject.value) {
+  if (date) selectDate(date)
   if (!data.value.projects.length) { projectEditor.value = {}; return }
-  entryEditor.value = { date }
+  entryEditor.value = { date, projectId }
 }
 function editEntry(entry: Entry) {
-  selectDate(entry.date)
-  entryEditor.value = { entry, date: entry.date }
+  if (workspaceView.value === 'calendar' && entry.date) selectDate(entry.date)
+  entryEditor.value = { entry, date: entry.date, projectId: entry.projectId }
+}
+async function submitEntry(input: EntryInput, id?: string) {
+  await saveEntry(input, id)
+  if (input.date === null) workspaceView.value = 'overview'
 }
 function followReference(entry: Entry | undefined) {
   if (!entry) return
   if (activeProject.value && activeProject.value !== entry.projectId) activeProject.value = ''
-  selectDate(entry.date)
-  nextTick(() => document.getElementById(`entry-${entry.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }))
+  if (entry.date === null) workspaceView.value = 'overview'
+  else if (workspaceView.value === 'calendar') selectDate(entry.date)
+  nextTick(() => {
+    const target = document.getElementById(`entry-${entry.id}`)
+    target?.focus({ preventScroll: true })
+    target?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  })
 }
 </script>
 
@@ -109,15 +109,17 @@ function followReference(entry: Entry | undefined) {
   <div v-else class="app-shell">
     <aside class="sidebar">
       <a class="brand" href="/" aria-label="日迹首页"><span class="brand-mark"><AppIcon name="spark" :size="24" /></span><span>日迹<span class="brand-en">HOSHINO’S AGENDA</span></span></a>
-      <nav class="project-nav" aria-label="项目筛选"><button class="nav-item all-projects" :class="{ active: !activeProject }" :aria-pressed="!activeProject" @click="activeProject = ''"><AppIcon name="calendar" :size="19" /><span>全部项目</span><span class="count">{{ data.entries.length }}</span></button><div class="nav-heading"><span>我的项目</span><button class="icon-button" aria-label="新建项目" :disabled="loading || saving" @click="projectEditor = {}"><AppIcon name="plus" :size="17" /></button></div><div class="project-list"><div v-for="project in data.projects" :key="project.id" class="project-nav-row" :class="{ active: activeProject === project.id }"><button class="nav-item" :aria-pressed="activeProject === project.id" @click="activeProject = project.id"><i class="project-dot" :style="{ background: project.color }" /><span class="truncate">{{ project.name }}</span><span class="count">{{ projectCounts.get(project.id) || 0 }}</span></button><button class="project-edit icon-button" :aria-label="`编辑项目 ${project.name}`" :disabled="saving || loading" @click="projectEditor = { project }"><AppIcon name="edit" :size="14" /></button></div><p v-if="!data.projects.length && !loading" class="sidebar-empty">(空)</p></div></nav>
+      <nav class="project-nav" aria-label="项目筛选"><button class="nav-item all-projects" :class="{ active: !activeProject }" :aria-pressed="!activeProject" @click="activeProject = ''"><AppIcon name="calendar" :size="19" /><span>全部项目</span><span class="count">{{ data.entries.length }}</span></button><div class="nav-heading"><span>我的项目</span><button class="icon-button" aria-label="新建项目" :disabled="loading || saving" @click="projectEditor = {}"><AppIcon name="plus" :size="17" /></button></div><div class="project-list"><div v-for="project in data.projects" :key="project.id" class="project-nav-row" :class="{ active: activeProject === project.id }"><button class="nav-item" :aria-pressed="activeProject === project.id" @click="activeProject = project.id"><i class="project-dot" :style="{ background: project.color }" /><span class="truncate">{{ project.name }}</span><span class="count">{{ projectCounts.get(project.id) || 0 }}</span></button><ProjectActions :name="project.name" :disabled="saving || loading" @overview="activeProject = project.id; workspaceView = 'overview'" @edit="projectEditor = { project }" /></div><p v-if="!data.projects.length && !loading" class="sidebar-empty">(空)</p></div></nav>
       <div class="sidebar-bottom"><button class="account-button" :disabled="saving" @click="showAccount = true"><span class="avatar">{{ email[0]?.toUpperCase() }}</span><span class="account-label"><strong>我的空间</strong><small>{{ email }}</small></span><AppIcon name="chevronDown" :size="15" /></button></div>
     </aside>
 
     <div class="main-shell">
-      <header class="topbar"><div class="breadcrumb"><AppIcon name="grid" :size="16" /><span>我的工作台</span><span class="breadcrumb-slash">/</span><strong>项目日历</strong></div><button class="sync-button" :disabled="loading || saving" :title="syncedAt ? `上次同步：${syncedAt.toLocaleDateString('zh-CN')} ${syncedTime}` : '从云端读取数据'" @click="refresh"><span class="status-dot" :class="{ 'status-error': error, 'status-busy': loading || saving }" /><span>{{ saving ? '正在保存' : loading ? '正在同步' : error ? '同步失败 · 重试' : syncedAt ? `已与云端同步 · ${syncedTime}` : '同步数据' }}</span><AppIcon name="refresh" :size="14" :class="{ spinning: loading }" /></button></header>
-      <main class="workspace" :class="{ 'day-view': view === 'day' }">
+      <header class="topbar"><nav class="breadcrumb" aria-label="工作台导航"><AppIcon name="grid" :size="16" /><span class="breadcrumb-home">我的工作台</span><span class="breadcrumb-slash">/</span><WorkspaceViewSelect v-model="workspaceView" /></nav><button class="sync-button" :disabled="loading || saving" :title="syncedAt ? `上次同步：${syncedAt.toLocaleDateString('zh-CN')} ${syncedTime}` : '从云端读取数据'" @click="refresh"><span class="status-dot" :class="{ 'status-error': error, 'status-busy': loading || saving }" /><span>{{ saving ? '正在保存' : loading ? '正在同步' : error ? '同步失败 · 重试' : syncedAt ? `已与云端同步 · ${syncedTime}` : '同步数据' }}</span><AppIcon name="refresh" :size="14" :class="{ spinning: loading }" /></button></header>
+      <main class="workspace" :class="{ 'day-view': workspaceView === 'calendar' && view === 'day' }">
         <div v-if="error" class="error-banner" role="alert"><span>{{ error }}</span><button class="text-button" :disabled="loading || saving" @click="refresh">重试</button></div>
 
+        <ProjectOverview v-if="workspaceView === 'overview'" :projects="data.projects" :entries="data.entries" :active-project="activeProject" :busy="loading || saving" :loading="loading" @add="addEntry(null, $event)" @create-project="projectEditor = {}" @edit-project="projectEditor = { project: $event }" @clear-filter="activeProject = ''" @edit="editEntry" @toggle="toggleEntry" @follow="followReference" />
+        <template v-else>
         <section class="calendar-card" :aria-busy="loading">
           <header class="calendar-toolbar">
             <div class="month-heading"><h2>{{ monthLabel }}</h2><div class="summary-counts" aria-label="本月概览"><span>总数 <strong>{{ monthEntries.length }}</strong></span><span class="summary-divider" aria-hidden="true">/</span><span>未完成 <strong>{{ monthEntries.length - completedCount }}</strong></span></div></div>
@@ -143,28 +145,15 @@ function followReference(entry: Entry | undefined) {
         <section class="day-panel" aria-labelledby="day-title"><header class="day-panel-heading"><div class="day-title-group"><span class="day-icon"><AppIcon name="calendar" :size="20" /></span><div><h2 id="day-title">{{ formatDate(selected) }}<span v-if="selected === today" class="today-badge">今天</span></h2><p>{{ selectedEntries.length }} 个事项，已完成 {{ selectedCompleted }} 个</p></div></div><button class="button secondary" :disabled="loading || saving" @click="addEntry()"><AppIcon name="plus" :size="16" />事项</button></header>
           <div v-if="loading && !syncedAt" class="day-empty"><AppIcon name="refresh" class="spinning" :size="25" /><p>正在从云端取回你的记录…</p></div>
           <div v-else-if="!selectedEntries.length" class="day-empty"><h3>{{ data.projects.length ? '当天暂无事项' : '(空)' }}</h3><p v-if="!data.projects.length">创建项目后即可添加事项。</p><button class="text-button" :disabled="loading || saving" @click="data.projects.length ? addEntry() : projectEditor = {}">{{ data.projects.length ? '添加事项' : '创建项目' }}<AppIcon name="arrow" :size="15" /></button></div>
-          <div v-else class="entry-list">
-            <article v-for="entry in selectedEntries" :id="`entry-${entry.id}`" :key="entry.id" class="entry-card" :class="{ 'entry-completed': entry.completed }">
-              <button class="completion-toggle" :class="{ checked: entry.completed }" :aria-label="`${entry.completed ? '标为未完成' : '标为完成'}：${entry.title}`" :aria-pressed="entry.completed" :disabled="saving || loading" @click="toggleEntry(entry)"><AppIcon v-if="entry.completed" name="check" :size="14" /></button>
-              <div class="entry-content">
-                <button class="entry-title" @click="editEntry(entry)">{{ entry.title }}</button>
-                <div class="entry-meta"><span class="project-tag" :style="{ '--project-color': projectMap.get(entry.projectId)?.color }"><i class="project-dot" />{{ projectMap.get(entry.projectId)?.name }}</span><span class="entry-state">{{ entry.completed ? '已完成' : '进行中' }}</span></div>
-                <EntryDescription :entry="entry" :entries="data.entries" :projects="data.projects" @follow="followReference" />
-                <div v-if="legacyReferences.get(entry.id)?.length || backlinks.get(entry.id)?.length" class="entry-links">
-                  <div v-if="legacyReferences.get(entry.id)?.length" class="reference-group"><span><AppIcon name="link" :size="12" />引用</span><template v-for="id in legacyReferences.get(entry.id)" :key="id"><EntryTooltip v-if="entryMap.has(id)" :entry="entryMap.get(id)!" :entries="data.entries" :projects="data.projects"><button class="reference-chip" @click="followReference(entryMap.get(id))">@{{ entryMap.get(id)?.title }}<AppIcon name="arrow" :size="12" /></button></EntryTooltip><span v-else class="reference-chip">@事项已删除</span></template></div>
-                  <div v-if="backlinks.get(entry.id)?.length" class="reference-group"><span><AppIcon name="link" :size="12" />被引用</span><EntryTooltip v-for="source in backlinks.get(entry.id)" :key="source.id" :entry="source" :entries="data.entries" :projects="data.projects"><button class="reference-chip backlink" @click="followReference(source)">@{{ source.title }}<AppIcon name="arrow" :size="12" /></button></EntryTooltip></div>
-                </div>
-              </div>
-              <button class="icon-button entry-edit" :aria-label="`编辑事项 ${entry.title}`" :disabled="saving || loading" @click="editEntry(entry)"><AppIcon name="edit" :size="17" /></button>
-            </article>
-          </div>
+          <EntryList v-else :entries="selectedEntries" :all-entries="data.entries" :projects="data.projects" :busy="loading || saving" @edit="editEntry" @toggle="toggleEntry" @follow="followReference" />
         </section>
+        </template>
       </main>
     </div>
 
     <AppDialog v-if="showAccount" title="回到你的数据空间" @close="showAccount = false"><p class="account-description">输入邮箱，提取对应的项目和日历记录。</p><EmailForm :initial="email" @submit="enterAccount" /></AppDialog>
     <ProjectEditor v-if="projectEditor" :project="projectEditor.project" :entry-count="projectEditor.project ? projectCounts.get(projectEditor.project.id) || 0 : 0" :submit="saveProject" :remove="deleteProject" @close="projectEditor = null" />
-    <EntryEditor v-if="entryEditor" :key="entryEditor.entry?.id || 'new'" :entry="entryEditor.entry" :date="entryEditor.date" :project-id="activeProject" :projects="data.projects" :entries="data.entries" :submit="saveEntry" :remove="deleteEntry" @close="entryEditor = null" />
+    <EntryEditor v-if="entryEditor" :key="entryEditor.entry?.id || 'new'" :entry="entryEditor.entry" :date="entryEditor.date" :project-id="entryEditor.projectId" :projects="data.projects" :entries="data.entries" :submit="submitEntry" :remove="deleteEntry" @close="entryEditor = null" />
   </div>
   </UApp>
 </template>

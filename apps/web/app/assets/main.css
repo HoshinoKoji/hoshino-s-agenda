@@ -63,7 +63,8 @@ button { transition: background .15s, color .15s; }
 .nav-heading { display: flex; align-items: center; justify-content: space-between; margin: 26px 7px 8px 12px; color: #a29aa9; font-size: 11px; }
 .project-nav-row { display: flex; align-items: center; margin: 4px 0; }
 .project-nav-row .nav-item { min-width: 0; }
-.project-edit { margin-right: 5px; width: 25px; }
+.project-menu-trigger { margin-right: 5px; width: 28px; }
+.project-menu-trigger[data-state='open'] { background: var(--lavender); color: var(--primary); }
 .project-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; background: var(--project-color); }
 .sidebar-empty { font-size: 12px; line-height: 2; color: #aaa5b1; padding: 14px 12px; }
 .sidebar-bottom { margin-top: auto; padding-top: 30px; }
@@ -75,7 +76,7 @@ button { transition: background .15s, color .15s; }
 .main-shell { flex: 1; min-width: 0; }
 .topbar { min-height: 69px; border-bottom: 1px solid var(--line); background: #ffffffb3; display: flex; align-items: center; justify-content: space-between; padding: 0 38px; gap: 12px; }
 .breadcrumb, .sync-button { display: flex; align-items: center; gap: 10px; font-size: 11px; color: #98919f; }
-.breadcrumb strong { color: #6a6575; font-weight: 400; }
+.breadcrumb { flex-shrink: 0; }
 .breadcrumb-slash { margin: 0 6px; color: #d2cdd9; }
 .status-dot, .legend-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; background: #94b49b; }
 .status-error { background: #c76868; }
@@ -109,7 +110,7 @@ button { transition: background .15s, color .15s; }
 .calendar-day:nth-child(7n) { border-right: 0; }
 .calendar-day.weekend { background: #fdfcfe; }
 .calendar-day.other-month { background: #fcfbfd; }
-.calendar-day.is-selected { background: #fff4f8; box-shadow: inset 0 0 0 1px #e9b3cc; }
+.calendar-day.is-selected { box-shadow: inset 0 0 0 1px #e9b3cc; }
 .day-select { display: flex; align-items: center; width: 100%; text-align: left; gap: 5px; padding: 0 0 5px; min-height: 30px; }
 .day-number { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 8px; font-size: 11px; }
 .other-month .day-number { color: #c1bac9; }
@@ -157,7 +158,7 @@ button { transition: background .15s, color .15s; }
 .entry-title { padding: 0; text-align: left; line-height: 1.8; font-size: 13px; overflow-wrap: anywhere; }
 .entry-title:hover { color: var(--primary); }
 .entry-completed .entry-title { text-decoration: line-through; color: #a6a0ae; }
-.entry-meta { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+.entry-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 8px; }
 .project-tag { display: inline-flex; align-items: center; gap: 5px; color: var(--project-color); font-size: 10px; overflow-wrap: anywhere; }
 .entry-state { font-size: 10px; color: #aaa2b2; white-space: nowrap; }
 .entry-description { margin-top: 12px; font-size: 13px; line-height: 1.9; color: #70667d; white-space: pre-wrap; white-space: break-spaces; overflow-wrap: anywhere; }
@@ -181,6 +182,17 @@ button.entry-mention:hover { background: #f7d9e7; text-decoration: underline; }
 .day-view .entry-completed::before { background: #9eb4a3; }
 .day-view .entry-title { font-size: 14px; }
 .day-view .day-empty { padding-block: 50px; }
+
+/* Project overview */
+.overview-toolbar, .overview-project-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.overview-toolbar { flex-wrap: wrap; margin-bottom: 20px; }
+.overview-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.overview-project { background: white; border: 1px solid var(--line); border-radius: 12px; padding: 22px 24px 6px; margin-top: 16px; }
+.overview-project-title { min-width: 0; }
+.overview-project-title h3 { display: flex; align-items: center; gap: 9px; font-size: 15px; font-weight: 500; overflow-wrap: anywhere; }
+.overview-project-title p { margin-top: 6px; font-size: 11px; color: var(--muted); }
+.overview-project .entry-list { margin-top: 16px; }
+.overview-project-heading .button { min-height: 32px; padding: 6px 10px; font-size: 11px; }
 
 /* Dialogs and forms */
 body:has(dialog[open]) { overflow: hidden; }
@@ -216,6 +228,10 @@ input::placeholder, textarea::placeholder { color: #b3aabb; }
 .email-input:focus-within { outline: 2px solid var(--primary); outline-offset: 3px; }
 .email-input input:focus { outline: none; }
 .checkbox-label { display: flex; align-items: center; gap: 9px; font-size: 12px; }
+.date-field-heading { display: flex; align-items: center; justify-content: space-between; gap: 6px; flex-wrap: wrap; }
+.date-option { font-size: 11px; font-weight: 400; color: var(--muted); gap: 5px; white-space: nowrap; }
+.date-option input { min-height: 0; padding: 0; }
+.undated-placeholder { display: flex; align-items: center; justify-content: center; min-height: 39px; border: 1px dashed #e5dfed; border-radius: 8px; color: var(--muted); font-weight: 400; }
 input[type='checkbox'] { accent-color: var(--primary); width: 16px; height: 16px; flex-shrink: 0; cursor: pointer; }
 .completion-field { min-height: 43px; color: #71836b; white-space: nowrap; }
 .section-label { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 12px; font-size: 12px; }
@@ -285,7 +301,7 @@ input[type='checkbox'] { accent-color: var(--primary); width: 16px; height: 16px
   .account-label strong { font-size: 11px; }
   .topbar { padding: 0 17px; }
   .breadcrumb { font-size: 10px; gap: 6px; }
-  .breadcrumb > svg, .breadcrumb-slash { display: none; }
+  .breadcrumb > svg, .breadcrumb-slash, .breadcrumb-home { display: none; }
   .sync-button { font-size: 10px; gap: 6px; }
   .workspace { padding: 22px 14px; }
   .add-main { font-size: 11px; padding: 8px 10px; min-height: 35px; gap: 4px; }
@@ -309,6 +325,9 @@ input[type='checkbox'] { accent-color: var(--primary); width: 16px; height: 16px
   .day-panel-heading .button { padding: 6px 8px; font-size: 10px; gap: 4px; }
   .day-empty { padding-inline: 0; }
   .entry-card { gap: 9px; }
+  .overview-project { padding: 17px 14px 2px; }
+  .overview-project-title h3 { font-size: 13px; }
+  .overview-actions { gap: 4px; }
   .day-view .entry-card { padding: 14px 10px; }
   .day-view .entry-title { font-size: 13px; }
   .day-view .calendar-controls { gap: 8px; }

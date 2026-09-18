@@ -1,5 +1,64 @@
 # 项目交接
 
+## 本轮：日历选中边框与侧栏项目菜单（2026-09-18）
+
+已编写：
+
+- 月日历 `.calendar-day.is-selected` 移除粉色背景，只保留内描边高亮；选中时沿用日期格原有底色。
+- 新增 `ProjectActions.vue`，侧栏项目右侧编辑图标改为三点按钮，使用 Nuxt UI `UDropdownMenu` 提供「转到项目总览 / 编辑」。总览操作同时切换 `workspaceView` 并筛选该项目；编辑操作打开原有项目编辑器，菜单关闭时保留编辑器焦点。菜单沿用粉色悬停、圆角白底、轻阴影和本地图标，通过 portal 避免侧栏滚动区域裁剪。
+- 更新现有主流程的项目编辑入口；扩展总览流程，验证普通日/周末选择前后背景相同且有描边、菜单项、Escape 关闭/焦点恢复、从另一筛选项目跳到目标总览及状态保留。
+
+已验证：
+
+- `bun run --filter @agenda/web typecheck`、`bun run typecheck:tests`、`git diff --check` 通过。
+- `bun run test --project=desktop --project=mobile -g '邮箱进入、项目和事项编辑|项目总览分组'` **4/4 通过**，包含前端生成和真实本地 Worker/D1。验证侧栏菜单编辑、弹窗焦点、改名/删除、项目总览跳转及原有事项流程。
+- 已查看桌面/手机 `project-actions.png` 和桌面 `calendar-selection-border.png`，三点按钮、菜单位置/图标及边框高亮正常，无横向溢出。
+
+待完成 / 边界：
+
+- 本轮未重跑全量回归，未执行远程部署；报告与截图为本轮专项结果。
+
+## 本轮：面包屑视图选择组件与样式（2026-09-18）
+
+已编写：
+
+- 新增 `WorkspaceViewSelect.vue`，使用 Nuxt UI `USelect` 替换 header 的原生 select，保持 `workspaceView` 双向绑定。采用紧凑透明触发器、粉色悬停/展开状态、旋转箭头，以及白底圆角浮层、轻阴影、选中高亮和勾选标记。菜单左侧复用本地 `AppIcon`，保证首次打开即有图标。
+- 通过组件 `ui` slots 调整触发器与菜单字号、行高、间距、颜色，菜单左对齐并保留 viewport 边距；删除旧 `.workspace-switch` 样式。
+- 更新现有总览回归为组件菜单操作，覆盖 Enter 打开、方向键选择、Enter 确认、Escape 关闭/焦点恢复及鼠标/触摸选择。此测试改用随真实时间推进的 `page.clock.install`，避免 `setFixedTime` 固定 Date.now 导致 Vue 对重新打开浮层的冒泡事件时间戳判定异常；等待日期弹层关闭后再保存，避免关闭动画期间 dialog 定位歧义。
+
+已验证：
+
+- `bun run --filter @agenda/web typecheck`、`bun run typecheck:tests`、`git diff --check` 通过。
+- `bun run test --project=desktop --project=mobile -g '项目总览分组'` 最终 **2/2 通过**，覆盖菜单交互及原有总览完整流程。
+- 已查看两端 `workspace-view-select.png`，菜单对齐、选中状态、本地图标和手机宽度正常，无横向溢出。报告和截图为本轮专项结果，已覆盖前轮报告。
+
+待完成 / 边界：
+
+- 本轮未重跑全量回归，未执行远程部署。
+
+## 本轮：项目总览与无日期事项（2026-09-18）
+
+已编写：
+
+- header 面包屑增加原生下拉「项目日历 / 项目总览」。默认月日历；切换保留项目筛选、选中日期及月 / 日视图，视图选择不持久化。手机隐藏面包屑的「我的工作台」前缀，保留切换入口和同步时间。
+- 新增 `ProjectOverview.vue`，按项目展示所有日期的事项及空项目，提供各组统计、新建事项、编辑项目和新建项目入口。未完成优先，同状态未设日期优先，再按日期、创建时间、ID 稳定排序。侧栏筛选对两种视图均有效。
+- 抽取 `EntryList.vue` 复用日历详情与总览事项卡片（完成、编辑、描述、旧引用、反向引用）；总览额外展示日期或「未设日期」。引用目标可聚焦：日历中的无日期引用切总览；总览内保持总览定位，必要时清除项目筛选。
+- `EntryEditor.vue` 增加「不设日期」，总览新建默认无日期并预选项目，日历新建保留所选日期；编辑可补充/清除日期，清除并保存后打开总览。候选支持搜索「未设日期」，tooltip 同步显示；无日期事项不进入日历及本月统计，但计入侧栏和总览。
+- 共享 `Entry.date` / `EntryInput.date` 改为 `string | null`；API POST/PUT 必须显式传日期或 null，拒绝省略、空字符串和无效日期；PATCH 保留日期。Drizzle schema 允许空日期，新增 `0003_optional_entry_date.sql`：先备份并移除引用表，再重建 entries，最后恢复引用及索引，避免级联丢失已有引用。
+- 新增 API 与桌面/手机总览回归，README 更新使用方式、接口语义和迁移部署说明。
+
+已验证：
+
+- `bun run typecheck` 通过（Web、API、测试）；`git diff --check` 通过。
+- `bun run test` **27/27 通过**（API 8、部署 1、mentions 4、桌面 7、手机 7；2.1m），包含前端生产生成、真实本地 Worker/D1 的 `0003` 迁移及 API 读写。覆盖分组/排序、空项目、筛选和日期保留、无日期新建/完成/补日期/清日期/删除/刷新恢复、跨视图引用及聚焦、总览内项目改名、原有日历与引用完整回归。
+- 项目内临时 Bun SQLite 验证脚本：启用外键、应用真实 `0001`/`0002`，用 Drizzle 写入跨项目双向引用及第二邮箱记录，事务执行真实 `0003` 后比对四张表完整一致；确认日期改 null 不影响引用、新增无日期事项、索引保留、跨邮箱外键/自引用约束及项目删除级联有效，`foreign_key_check` 为空。脚本已删除，数据库为内存库；业务读写全部使用 ORM。
+- 已查看桌面/手机 `project-overview.png` 和手机 `undated-editor.png`：总览分组、日期文案、面包屑入口及表单布局正常，无页面横向溢出。报告在 `playwright-report/`，截图在 `test-results/web-项目总览分组、无日期事项管理、筛选保留与跨视图引用-*/`。
+
+待完成 / 边界：
+
+- 本轮仅迁移独立测试 D1，未修改真实本地开发库或远程数据库。已有开发库启动前运行 `bun run db:migrate`；上线前运行 `bun run db:migrate:remote`，再 `bun run deploy`。
+- 未执行远程部署；Safari/Firefox、实体手机和真实 Cloudflare Access 登录仍未验证。
+
 ## 本轮：事项完成状态并入底部操作栏（2026-09-16）
 
 已编写：
@@ -163,7 +222,7 @@
 - Bun workspace、Nuxt 4 SPA、Worker API、D1 初始迁移及共享类型已编写，已通过本地类型检查、构建和功能验证。
 - 前端邮箱进入/切换、项目管理、月日历、事项编辑、完成切换、双向引用展示与跳转已验证。
 - `apps/web/app/assets/main.css` 已补齐欢迎页、工作台、日历、表单与弹窗的响应式样式；已复核桌面/手机截图，并修正长邮箱换行和窄屏项目栏收缩问题。字体使用本机字体栈，无外部字体请求。
-- 已编写 `playwright.config.ts`、`tests/fixtures.ts`、API、部署路由、mentions 纯函数与浏览器功能测试，当前完整回归共 23 项通过（详见单 Worker 验收）。
+- 已编写 `playwright.config.ts`、`tests/fixtures.ts`、API、部署路由、mentions 纯函数与浏览器功能测试，当前完整回归共 27 项通过（详见项目总览与无日期事项验收）。
 - 已编写根 `README.md`，包含本地启动、测试、Cloudflare 单 Worker + D1 部署及 Access 域名迁移说明。远程部署流程尚未实际执行。
 - 数据库访问已统一改为 Drizzle ORM 0.45.2：`apps/api/src/db` 提供统一初始化和四张表的类型化映射；API 的查询、计数、增删改与批处理均使用 ORM。已通过真实本地 D1 回归测试。
 
@@ -399,7 +458,9 @@
 - `shared/mentions.ts` 负责 `@[标题](item:ID)` 转义/解析、去重、legacy 合并和 UTF-16 光标查询；标题转义反斜线、方括号和 LF/CR，普通邮箱/畸形标记保持文本。UI 保存时合并有效标记与 legacy 并过滤自身/缺失目标；API 不自动解析描述，仍以已校验的显式 references 为关系来源。
 - `EntryDescriptionEditor.vue` 为 textarea + listbox，支持标题/项目/日期多词筛选、键盘与 IME、中间插入保留后缀、Escape 阻止外层 dialog cancel。`EntryEditor.vue` 初始化无标记旧引用，显式转为标记后移出 legacy，避免删除标记时关系复活。
 - `EntryDescription.vue` 仅 Vue 文本插值，不渲染 HTML/Markdown；可跳转标记必须存在于 API references 且非自身。按 ID 显示目标当前标题，删除后用旧标记标题显示「已删除」。月视图 `CalendarGrid.vue` 的 `UTooltip` 使用 portal 和非交互描述；手机沿用每日详情阅读完整描述。
-- 事项 `date` 是 `YYYY-MM-DD` 日历日期；前端使用 `apps/web/app/utils/dates.ts` 的本地日期辅助函数，避免用 UTC ISO 截断替代而导致日期偏移。
+- 事项 `date` 是 `YYYY-MM-DD` 日历日期或 `null`（未设日期）；POST/PUT 必须显式传入，缺省不表示无日期。前端使用 `apps/web/app/utils/dates.ts` 的本地日期辅助函数，避免用 UTC ISO 截断替代而导致日期偏移；日期计算/筛选需先处理 null。
+- `0003_optional_entry_date.sql` 在重建 entries 前备份并移除引用表，迁移后恢复全部关系及索引。数据库 schema 与 API/Web 必须配套更新；上线先迁移再部署。
+- `app.vue` 的 `workspaceView`（calendar/overview）与原 `view`（month/day）分离；`ProjectOverview.vue` 负责项目分组与排序，`EntryList.vue` 为总览和每日详情共享事项列表，负责描述/引用与 backlinks 映射。引用定位的卡片 ID 仍为 `entry-${id}`，两种视图互斥渲染，避免重复 ID。
 
 ## Cloudflare 部署交接
 

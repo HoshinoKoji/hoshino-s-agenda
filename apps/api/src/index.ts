@@ -75,10 +75,12 @@ function entryInput(value: Record<string, unknown>, id: string): EntryInput & { 
     fail(400, `事项描述不能超过 ${DESCRIPTION_MAX_LENGTH} 个 UTF-16 单元`)
   }
   const projectId = text(value.projectId, '项目 ID', 64)
-  const date = text(value.date, '日期', 10)
-  const parsed = new Date(`${date}T00:00:00.000Z`)
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date) {
-    fail(400, '请提供有效的日期，格式为 YYYY-MM-DD')
+  const date = value.date === null ? null : text(value.date, '日期', 10)
+  if (date !== null) {
+    const parsed = new Date(`${date}T00:00:00.000Z`)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date) {
+      fail(400, '请提供有效的日期，格式为 YYYY-MM-DD，或用 null 表示未设日期')
+    }
   }
   if (typeof value.completed !== 'boolean') fail(400, '完成状态必须为布尔值')
   if (!Array.isArray(value.references) || value.references.length > 50 ||

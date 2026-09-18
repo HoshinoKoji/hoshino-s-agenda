@@ -7,7 +7,9 @@ const weekdays = ['一', '二', '三', '四', '五', '六', '日']
 const projectMap = computed(() => new Map(props.projects.map(project => [project.id, project])))
 const entriesByDate = computed(() => {
   const map = new Map<string, Entry[]>()
-  for (const entry of props.entries) map.set(entry.date, [...(map.get(entry.date) || []), entry])
+  for (const entry of props.entries) {
+    if (entry.date !== null) map.set(entry.date, [...(map.get(entry.date) || []), entry])
+  }
   return map
 })
 const days = computed(() => {

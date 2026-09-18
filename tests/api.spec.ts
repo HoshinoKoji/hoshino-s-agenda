@@ -73,6 +73,38 @@ test('邮箱归一化与读写隔离，拒绝无效引用且保留原记录', as
   expect((await request.get('http://127.0.0.1:8787/api/agenda')).status()).toBe(400)
 })
 
+test('无日期事项往返、补充与清除日期、引用及隔离', async ({ space, otherSpace }) => {
+  const project = await space.project('未排期项目')
+  const other = await space.project('有日期项目')
+  const target = await space.entry(other.id, '有日期目标', '2026-09-13')
+  const id = await space.entry(project.id, '待安排', null, [target], '日期之后再定')
+  const original = (await space.agenda()).entries.find(entry => entry.id === id)!
+  expect(original).toMatchObject({ date: null, references: [target], description: '日期之后再定' })
+  const dated = (await space.agenda()).entries.find(entry => entry.id === target)!
+  expect((await space.api.put(`/api/entries/${target}`, { data: { ...dated, references: [id] } })).status()).toBe(200)
+  expect((await space.api.patch(`/api/entries/${id}`, { data: { completed: true } })).status()).toBe(200)
+  expect((await space.agenda()).entries.find(entry => entry.id === id)).toMatchObject({ ...original, completed: true, updatedAt: expect.any(String) })
+
+  for (const date of ['2024-02-29', null]) {
+    expect((await space.api.put(`/api/entries/${id}`, { data: { ...original, date, completed: true } })).status()).toBe(200)
+    expect((await space.agenda()).entries.find(entry => entry.id === id)).toMatchObject({ ...original, date, completed: true, updatedAt: expect.any(String) })
+    expect((await space.agenda()).entries.find(entry => entry.id === target)?.references).toEqual([id])
+  }
+  const before = await space.agenda()
+  for (const date of [undefined, '', ' ', false, 123, '2026-02-29', '2026-13-01', '2026-09-13T00:00:00Z']) {
+    expect((await space.api.post('/api/entries', { data: { ...original, date } })).status()).toBe(400)
+    expect((await space.api.put(`/api/entries/${id}`, { data: { ...original, date } })).status()).toBe(400)
+    expect(await space.agenda()).toEqual(before)
+  }
+  expect((await otherSpace.agenda()).entries).toEqual([])
+  expect((await otherSpace.api.put(`/api/entries/${id}`, { data: original })).status()).toBe(404)
+  const foreign = await otherSpace.project('其他空间')
+  expect((await otherSpace.api.post('/api/entries', { data: { ...original, projectId: foreign.id, references: [id] } })).status()).toBe(400)
+  expect(await space.agenda()).toEqual(before)
+  expect((await space.api.delete(`/api/projects/${project.id}`)).status()).toBe(200)
+  expect((await space.agenda()).entries).toEqual([expect.objectContaining({ id: target, references: [] })])
+})
+
 test('自定义 RGB 颜色创建、修改、归一化及无效值拒绝', async ({ space }) => {
   const project = await space.project('自定义颜色', '#12abef')
   expect(project.color).toBe('#12ABEF')
