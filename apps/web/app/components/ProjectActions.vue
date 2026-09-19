@@ -3,7 +3,7 @@ const props = defineProps<{ name: string; disabled: boolean; first?: boolean; la
 const emit = defineEmits<{ overview: []; edit: []; up: []; down: [] }>()
 const editing = ref(false)
 const items = computed(() => [
-  { label: '转到项目总览', action: 'overview', onSelect: () => emit('overview') },
+  { label: '转到总览', action: 'overview', onSelect: () => emit('overview') },
   { label: '编辑', action: 'edit', onSelect: () => { editing.value = true; emit('edit') } },
   { label: '上移', action: 'up', disabled: props.first || props.disabled, onSelect: () => emit('up') },
   { label: '下移', action: 'down', disabled: props.last || props.disabled, onSelect: () => emit('down') },
@@ -19,7 +19,7 @@ function closeAutoFocus(event: Event) {
     :items="items" :disabled="disabled" size="sm"
     :content="{ align: 'end', sideOffset: 6, collisionPadding: 12, onCloseAutoFocus: closeAutoFocus }"
     :ui="{
-      content: 'w-44 max-w-[calc(100vw-24px)] rounded-lg bg-white ring-[#eeedf3] shadow-[0_8px_28px_#30273f14]',
+      content: 'w-max max-w-[calc(100vw-24px)] rounded-lg bg-white ring-[#eeedf3] shadow-[0_8px_28px_#30273f14]',
       item: 'min-h-9 cursor-pointer items-center gap-2 px-2.5 py-2 text-xs text-[#6a6575] data-highlighted:text-primary data-highlighted:before:bg-[#fcebf3]',
     }"
     @update:open="open => { if (open) editing = false }"

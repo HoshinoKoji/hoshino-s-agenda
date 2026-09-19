@@ -1,5 +1,52 @@
 # 项目交接
 
+## 本轮：精简总览菜单文案（2026-09-19）
+
+已编写：
+
+- `ProjectActions.vue` 将「转到项目总览」改为「转到总览」，同步现有浏览器测试的文本断言和菜单定位。
+
+已验证：
+
+- `git diff --check` 通过。
+
+待完成 / 边界：
+
+- 本轮为文案修改，未重跑浏览器测试，未提交或部署。
+
+## 本轮：项目操作下拉宽度适应文字（2026-09-19）
+
+已编写：
+
+- `ProjectActions.vue` 的三点菜单（转到项目总览、编辑、上移、下移）由固定 `w-44` 改为 `w-max`，按最长选项及图标、内边距自然撑开，保留视口最大宽度限制。
+
+已验证：
+
+- `bun run --filter @agenda/web typecheck`、`git diff --check` 通过。
+- `CHOKIDAR_USEPOLLING=1 bun run test --project=desktop --project=mobile -g '项目总览分组'` **2/2 通过**；使用轮询避开前轮文件监听上限问题。
+- 已查看桌面/手机 `project-actions.png`，菜单宽度收紧，最长选项完整显示、无横向溢出。
+
+待完成 / 边界：
+
+- 本轮未重跑全量测试，未提交或部署。
+
+## 本轮：下拉选择宽度适应文字（2026-09-19）
+
+已编写：
+
+- `WorkspaceViewSelect.vue` 的展开菜单由固定 `w-40` 改为 `w-max`，按文字、图标、勾选标记与内边距自然撑开，保留视口最大宽度限制。
+
+已验证：
+
+- `bun run --filter @agenda/web typecheck`、`git diff --check` 通过。
+- `bun run test --project=desktop --project=mobile -g '项目总览分组'` **2/2 通过**，包含前端生成及视图菜单键盘、点击交互回归。
+- 已查看桌面/手机 `workspace-view-select.png`，菜单宽度收紧，文字和图标完整显示，无横向溢出。
+
+待完成 / 边界：
+
+- Wrangler 启动时报告文件监听上限 `ENOSPC`，静态资源热更新监听被禁用；服务继续运行，本轮构建后的浏览器测试正常通过。
+- 本轮未重跑全量测试，未提交或部署。
+
 ## 本轮：排序等待提示（2026-09-18）
 
 已编写：
