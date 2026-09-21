@@ -9,6 +9,7 @@ const today = ref(dateKey(new Date()))
 const selected = ref(today.value)
 const view = ref<'month' | 'day'>('month')
 const workspaceView = ref<'calendar' | 'overview'>('calendar')
+const showCompletedProjects = ref(false)
 const month = ref(new Date(new Date().getFullYear(), new Date().getMonth(), 1, 12))
 const activeProject = ref('')
 const showAccount = ref(false)
@@ -29,6 +30,7 @@ function enterAccount(value: string) {
   if (normalized === email.value) void refresh()
   email.value = normalized
   activeProject.value = ''
+  showCompletedProjects.value = false
   showAccount.value = false
   try { localStorage.setItem('agenda:email', normalized) } catch { /* Continue without remembering the email. */ }
 }
@@ -90,6 +92,9 @@ function followReference(entry: Entry | undefined) {
   if (activeProject.value && activeProject.value !== entry.projectId) activeProject.value = ''
   if (entry.date === null) workspaceView.value = 'overview'
   else if (workspaceView.value === 'calendar') selectDate(entry.date)
+  if (workspaceView.value === 'overview' && entry.completed) {
+    showCompletedProjects.value = true
+  }
   nextTick(() => {
     const target = document.getElementById(`entry-${entry.id}`)
     target?.focus({ preventScroll: true })
@@ -119,7 +124,7 @@ function followReference(entry: Entry | undefined) {
       <main class="workspace" :class="{ 'day-view': workspaceView === 'calendar' && view === 'day' }">
         <div v-if="error" class="error-banner" role="alert"><span>{{ error }}</span><button class="text-button" :disabled="loading || saving" @click="refresh">重试</button></div>
 
-        <ProjectOverview v-if="workspaceView === 'overview'" :projects="data.projects" :entries="data.entries" :active-project="activeProject" :busy="loading || saving" :loading="loading" @add="addEntry(null, $event)" @create-project="projectEditor = {}" @edit-project="projectEditor = { project: $event }" @clear-filter="activeProject = ''" @edit="editEntry" @toggle="toggleEntry" @follow="followReference" />
+        <ProjectOverview v-if="workspaceView === 'overview'" v-model:show-completed="showCompletedProjects" :projects="data.projects" :entries="data.entries" :active-project="activeProject" :busy="loading || saving" :loading="loading" @add="addEntry(null, $event)" @create-project="projectEditor = {}" @edit-project="projectEditor = { project: $event }" @edit="editEntry" @toggle="toggleEntry" @follow="followReference" />
         <template v-else>
         <section class="calendar-card" :aria-busy="loading">
           <header class="calendar-toolbar">
