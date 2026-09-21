@@ -199,6 +199,9 @@ button.entry-mention:hover { background: #f7d9e7; text-decoration: underline; }
 /* Project overview */
 .overview-toolbar, .overview-project-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .overview-toolbar { flex-wrap: wrap; margin-bottom: 20px; }
+.completed-count-toggle { color: inherit; font: inherit; white-space: nowrap; border-radius: 4px; }
+.completed-count-toggle:hover { text-decoration: underline; }
+.completed-count-toggle[aria-pressed='true'], .completed-count-toggle[aria-pressed='true'] strong { color: var(--primary); }
 .overview-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex-shrink: 0; }
 .overview-project { background: white; border: 1px solid var(--line); border-radius: 12px; padding: 22px 24px 6px; margin-top: 16px; }
 .overview-project-title { min-width: 0; }

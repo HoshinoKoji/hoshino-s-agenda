@@ -1,5 +1,54 @@
 # 项目交接
 
+## 本轮：已完成统计兼任显隐按钮（2026-09-21）
+
+已编写：
+
+- 总览移除独立「显示已完成」开关，统计改为「未完成 / 已完成」。已完成文字和数量整体为按钮，以 `aria-pressed` 表达显隐状态，展开时文字及数字使用主题粉色，支持键盘切换，悬浮提示对应操作。
+- 统计始终包含当前项目筛选下的完整事项，保留刷新默认隐藏、跨视图状态保留和引用自动展开。删除上一轮 `.overview-summary` 布局，README 同步新入口。
+- 总览回归改用按钮状态断言，覆盖空格键切换、粉色高亮、显隐前后统计不变及原有完成/引用/刷新流程。
+
+已验证：
+
+- `bun run --filter @agenda/web typecheck`、`bun run typecheck:tests`、`git diff --check` 通过。
+- `CHOKIDAR_USEPOLLING=1 bun run test --project=desktop --project=mobile -g '项目总览分组'` **2/2 通过**，包含无横向溢出断言。
+
+待完成 / 边界：
+
+- 本轮未人工复核截图，未重跑全量测试，未提交或部署。
+
+## 本轮：总览开关与统计并排（2026-09-21）
+
+已编写：
+
+- 将「显示已完成」从右侧操作区移至「总数 / 未完成」右侧，共用 `.overview-summary` 横向布局并垂直居中；窄屏时统计与开关作为整体随标题区换行。
+
+已验证：
+
+- `bun run --filter @agenda/web typecheck`、`git diff --check` 通过。
+- `CHOKIDAR_USEPOLLING=1 bun run test --project=desktop --project=mobile -g '项目总览分组'` **2/2 通过**，含两端无横向溢出断言。
+
+待完成 / 边界：
+
+- 本轮未人工复核截图，未提交或部署。
+
+## 本轮：事项添加日期与日期排序（2026-09-21）
+
+已编写：
+
+- `EntryList.vue` 在总览及日历详情的事项卡片中显示「添加于 YYYY-MM-DD」，使用现有 `createdAt` 按本地时区格式化，并通过 `time.datetime` 保留完整时间戳。
+- 总览移除完成状态排序优先级，按目标日期、添加时间升序，最后以 ID 稳定排序；未设目标日期仍排最前。API 原有排序已符合此规则。
+- README 更新使用说明；总览回归同步混合完成状态排序断言，检查总览及日历详情的添加日期文本与时间戳。
+
+已验证：
+
+- `bun run --filter @agenda/web typecheck`、`bun run typecheck:tests`、`git diff --check` 通过。
+- `CHOKIDAR_USEPOLLING=1 bun run test --project=desktop --project=mobile -g '项目总览分组'` **2/2 通过**，覆盖日期主排序、相同空目标日期下的添加时间次排序、完成状态不影响排序、两种视图添加日期展示及无横向溢出。
+
+待完成 / 边界：
+
+- 本轮未重跑全量测试，未人工复核截图，未提交或部署。
+
 ## 本轮：修复混合分组的已完成事项筛选（2026-09-21）
 
 已编写：

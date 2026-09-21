@@ -20,7 +20,7 @@ const groups = computed(() => {
   }
   return props.projects.filter(project => !props.activeProject || project.id === props.activeProject).map(project => {
     const entries = (byProject.get(project.id) || []).sort((a, b) =>
-      Number(a.completed) - Number(b.completed) || (a.date ?? '').localeCompare(b.date ?? '') ||
+      (a.date ?? '').localeCompare(b.date ?? '') ||
       a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
     return { project, entries, visibleEntries: entries.filter(entry => showCompleted.value || !entry.completed), remaining: entries.filter(entry => !entry.completed).length }
   })
@@ -33,9 +33,15 @@ const visibleGroups = computed(() => groups.value.filter(group => showCompleted.
 <template>
   <section class="project-overview" aria-label="项目总览" :aria-busy="loading">
     <header class="overview-toolbar">
-      <div class="month-heading"><h2>项目总览</h2><div class="summary-counts" aria-label="全部日期概览"><span>总数 <strong>{{ total }}</strong></span><span class="summary-divider" aria-hidden="true">/</span><span>未完成 <strong>{{ remaining }}</strong></span></div></div>
+      <div class="month-heading">
+        <h2>项目总览</h2>
+        <div class="summary-counts" aria-label="全部日期概览">
+          <span>未完成 <strong>{{ remaining }}</strong></span>
+          <span class="summary-divider" aria-hidden="true">/</span>
+          <button class="completed-count-toggle" :aria-pressed="showCompleted" :title="showCompleted ? '隐藏已完成事项' : '显示已完成事项'" @click="showCompleted = !showCompleted">已完成 <strong>{{ total - remaining }}</strong></button>
+        </div>
+      </div>
       <div class="overview-actions">
-        <USwitch v-model="showCompleted" label="显示已完成" />
         <button class="button secondary" :disabled="busy" @click="emit('createProject')"><AppIcon name="plus" :size="16" />项目</button>
       </div>
     </header>
