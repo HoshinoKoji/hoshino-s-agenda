@@ -189,6 +189,7 @@ button { transition: background .15s, color .15s; }
 .completion-toggle { display: grid; place-items: center; border: 1.5px solid #d7d1e1; width: 19px; height: 19px; border-radius: 6px; margin-top: 3px; flex-shrink: 0; padding: 0; }
 .completion-toggle.checked { border-color: #9eb4a3; color: white; background: #9eb4a3; }
 .entry-content { flex: 1; min-width: 0; }
+.entry-actions { display: flex; flex-shrink: 0; gap: 2px; }
 .entry-title { padding: 0; text-align: left; line-height: 1.8; font-size: 13px; overflow-wrap: anywhere; }
 .entry-title:hover { color: var(--primary); }
 .entry-completed .entry-title { text-decoration: line-through; color: #a6a0ae; }
@@ -246,6 +247,38 @@ button.entry-mention:hover { background: #f7d9e7; text-decoration: underline; }
 .overview-project-title p { margin-top: 6px; font-size: 11px; color: var(--muted); }
 .overview-project .entry-list { margin-top: 16px; }
 .overview-project-heading .button { min-height: 32px; padding: 6px 10px; font-size: 11px; }
+
+/* Single-entry print preview */
+.print-page { max-width: 860px; min-height: 100dvh; margin: auto; padding: 28px 24px 60px; }
+.print-toolbar { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
+.print-message, .print-sheet { background: white; border: 1px solid var(--line); border-radius: 12px; padding: 42px 48px; }
+.print-message h1 { font-size: 19px; margin-bottom: 12px; }
+.print-message p { margin-bottom: 18px; color: var(--muted); }
+.print-message .email-form { max-width: 380px; }
+.print-sheet { min-height: 500px; overflow-wrap: anywhere; }
+.print-heading { break-after: avoid; }
+.print-brand { font-size: 11px; color: var(--primary); letter-spacing: .08em; }
+.print-heading h1 { margin: 15px 0 12px; font-size: 25px; line-height: 1.5; font-weight: 600; }
+.print-project { display: flex; align-items: center; gap: 7px; font-size: 12px; color: #6f6876; }
+.print-meta { display: flex; flex-wrap: wrap; gap: 16px 36px; margin: 24px 0 0; padding: 18px 0; border-block: 1px solid var(--line); break-inside: avoid; }
+.print-meta div { display: flex; gap: 12px; }
+.print-meta dt { color: var(--muted); }
+.print-meta dd { margin: 0; }
+.print-section { margin-top: 26px; }
+.print-section h2 { margin: 0; font-size: 14px; font-weight: 600; break-after: avoid; }
+.print-section .entry-description { margin-top: 12px; color: #343342; }
+.print-references { margin-top: 12px; line-height: 1.9; overflow-wrap: anywhere; }
+
+@page { size: A4 portrait; margin: 16mm; }
+@media print {
+  :root { background: white; color: #202020; }
+  body { background: white; }
+  .print-page { max-width: none; min-height: 0; margin: 0; padding: 0; }
+  .print-toolbar { display: none; }
+  .print-sheet { min-height: 0; padding: 0; border: 0; border-radius: 0; }
+  .print-section .entry-description { color: #202020; }
+  .print-section :is(p, li, blockquote, pre) { orphans: 2; widows: 2; }
+}
 
 /* Dialogs and forms */
 body:has(dialog[open]) { overflow: hidden; }
@@ -308,7 +341,10 @@ input[type='checkbox'] { accent-color: var(--primary); width: 16px; height: 16px
 .rgb-fields input { padding: 10px 8px; }
 .color-preview { width: 43px; height: 43px; border: 1px solid var(--line); border-radius: 8px; }
 .form-footer { display: flex; gap: 10px; align-items: center; border-top: 1px solid var(--line); padding-top: 20px; margin-top: 25px; }
-.entry-form-footer { border-top: 0; padding-top: 0; }
+.entry-form-footer { border-top: 0; padding-top: 0; flex-wrap: wrap; }
+.entry-footer-settings, .entry-footer-actions { display: flex; align-items: center; gap: 10px; }
+.entry-footer-actions { margin-left: auto; }
+.entry-footer-actions .button { min-height: 36px; padding: 7px 11px; }
 .danger-text { color: #c48080; }
 .danger { color: white; background: #b56565; border-color: #b56565; }
 .delete-confirm { background: #fff4f1; padding: 15px; border-radius: 8px; margin-top: 20px; }
@@ -349,6 +385,10 @@ input[type='checkbox'] { accent-color: var(--primary); width: 16px; height: 16px
   .welcome-content { padding: 40px 30px; }
 }
 @media (max-width: 600px) {
+  .print-page { padding: 16px 14px 40px; }
+  .print-message, .print-sheet { padding: 25px 18px; }
+  .print-heading h1 { font-size: 21px; }
+  .print-meta { gap: 12px 22px; }
   .welcome-content { max-width: 420px; padding: 40px 26px; }
   .sidebar { padding: 15px 16px 10px; gap: 14px; }
   .account-label { max-width: 110px; }
@@ -397,6 +437,11 @@ input[type='checkbox'] { accent-color: var(--primary); width: 16px; height: 16px
   .field-row { gap: 10px; }
   .field input, .field select, .field textarea { font-size: 16px; }
   .color-options { gap: 10px; }
+  .entry-footer-settings, .entry-footer-actions { width: 100%; }
+  .entry-footer-actions { justify-content: flex-end; gap: 6px; }
+}
+@media print and (max-width: 600px) {
+  .print-page, .print-sheet { padding: 0; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }

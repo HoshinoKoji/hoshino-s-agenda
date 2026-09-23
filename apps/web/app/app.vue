@@ -5,6 +5,7 @@ import { dateKey, formatDate, parseDate, startOfWeek } from '~/utils/dates'
 
 const email = ref('')
 const hydrated = ref(false)
+const printEntryId = ref('')
 const today = ref(dateKey(new Date()))
 const selected = ref(today.value)
 const view = ref<'month' | 'week' | 'day'>('month')
@@ -20,6 +21,7 @@ const { data, loading, saving, reordering, error, syncedAt, refresh, saveProject
 let clock: ReturnType<typeof setInterval> | undefined
 
 onMounted(() => {
+  printEntryId.value = new URLSearchParams(window.location.search).get('printEntry') || ''
   try { email.value = localStorage.getItem('agenda:email') || '' } catch { /* Storage is optional. */ }
   if (window.matchMedia('(max-width: 600px)').matches) view.value = 'week'
   hydrated.value = true
@@ -96,6 +98,9 @@ function editEntry(entry: Entry) {
   if (workspaceView.value === 'calendar' && entry.date) selectDate(entry.date)
   entryEditor.value = { entry, date: entry.date, projectId: entry.projectId }
 }
+function exportEntry(entry: Entry) {
+  window.open(`/?printEntry=${encodeURIComponent(entry.id)}`, '_blank', 'noopener')
+}
 async function submitEntry(input: EntryInput, id?: string) {
   await saveEntry(input, id)
   if (input.date === null) workspaceView.value = 'overview'
@@ -120,6 +125,8 @@ function followReference(entry: Entry | undefined) {
   <UApp :locale="zh_cn">
   <div v-if="!hydrated" class="boot-screen"><span class="brand-mark"><AppIcon name="spark" :size="26" /></span><p>正在打开日历…</p></div>
 
+  <EntryPrintPage v-else-if="printEntryId" :entry-id="printEntryId" :email="email" :projects="data.projects" :entries="data.entries" :loading="loading" :error="error" :synced="!!syncedAt" @retry="refresh" @enter="enterAccount" />
+
   <main v-else-if="!email" class="welcome">
     <section class="welcome-content"><a class="brand welcome-brand" href="/"><span class="brand-mark"><AppIcon name="spark" :size="25" /></span><span>日迹<span class="brand-en">HOSHINO’S AGENDA</span></span></a><div class="welcome-copy"><h1>项目日历</h1><p>输入邮箱，打开对应的项目和事项。</p></div><EmailForm @submit="enterAccount" /></section>
   </main>
@@ -137,7 +144,7 @@ function followReference(entry: Entry | undefined) {
       <main class="workspace" :class="{ 'day-view': workspaceView === 'calendar' && view === 'day' }">
         <div v-if="error" class="error-banner" role="alert"><span>{{ error }}</span><button class="text-button" :disabled="loading || saving" @click="refresh">重试</button></div>
 
-        <ProjectOverview v-if="workspaceView === 'overview'" v-model:show-completed="showCompletedProjects" :projects="data.projects" :entries="data.entries" :active-project="activeProject" :busy="loading || saving" :loading="loading" @add="addEntry(null, $event)" @create-project="projectEditor = {}" @edit-project="projectEditor = { project: $event }" @edit="editEntry" @toggle="toggleEntry" @follow="followReference" />
+        <ProjectOverview v-if="workspaceView === 'overview'" v-model:show-completed="showCompletedProjects" :projects="data.projects" :entries="data.entries" :active-project="activeProject" :busy="loading || saving" :loading="loading" @add="addEntry(null, $event)" @create-project="projectEditor = {}" @edit-project="projectEditor = { project: $event }" @edit="editEntry" @export="exportEntry" @toggle="toggleEntry" @follow="followReference" />
         <template v-else>
         <section class="calendar-card" :aria-busy="loading">
           <header class="calendar-toolbar">
@@ -166,7 +173,7 @@ function followReference(entry: Entry | undefined) {
         <section class="day-panel" aria-labelledby="day-title"><header class="day-panel-heading"><div class="day-title-group"><span class="day-icon"><AppIcon name="calendar" :size="20" /></span><div><h2 id="day-title">{{ formatDate(selected) }}<span v-if="selected === today" class="today-badge">今天</span></h2><p>{{ selectedEntries.length }} 个事项，已完成 {{ selectedCompleted }} 个</p></div></div><button class="button secondary" :disabled="loading || saving" @click="addEntry()"><AppIcon name="plus" :size="16" />事项</button></header>
           <div v-if="loading && !syncedAt" class="day-empty"><AppIcon name="refresh" class="spinning" :size="25" /><p>正在从云端取回你的记录…</p></div>
           <div v-else-if="!selectedEntries.length" class="day-empty"><h3>{{ data.projects.length ? '当天暂无事项' : '(空)' }}</h3><p v-if="!data.projects.length">创建项目后即可添加事项。</p><button class="text-button" :disabled="loading || saving" @click="data.projects.length ? addEntry() : projectEditor = {}">{{ data.projects.length ? '添加事项' : '创建项目' }}<AppIcon name="arrow" :size="15" /></button></div>
-          <EntryList v-else :entries="selectedEntries" :all-entries="data.entries" :projects="data.projects" :busy="loading || saving" @edit="editEntry" @toggle="toggleEntry" @follow="followReference" />
+          <EntryList v-else :entries="selectedEntries" :all-entries="data.entries" :projects="data.projects" :busy="loading || saving" @edit="editEntry" @export="exportEntry" @toggle="toggleEntry" @follow="followReference" />
         </section>
         </template>
       </main>
@@ -175,7 +182,7 @@ function followReference(entry: Entry | undefined) {
     <AppDialog v-if="showAccount" title="回到你的数据空间" @close="showAccount = false"><p class="account-description">输入邮箱，提取对应的项目和日历记录。</p><EmailForm :initial="email" @submit="enterAccount" /></AppDialog>
     <ProjectOrderEditor v-if="showProjectOrder" :projects="data.projects" :submit="reorderProjects" :error="error" @close="showProjectOrder = false" />
     <ProjectEditor v-if="projectEditor" :project="projectEditor.project" :entry-count="projectEditor.project ? projectCounts.get(projectEditor.project.id) || 0 : 0" :submit="saveProject" :remove="deleteProject" @close="projectEditor = null" />
-    <EntryEditor v-if="entryEditor" :key="entryEditor.entry?.id || 'new'" :entry="entryEditor.entry" :date="entryEditor.date" :project-id="entryEditor.projectId" :projects="data.projects" :entries="data.entries" :submit="submitEntry" :remove="deleteEntry" @close="entryEditor = null" />
+    <EntryEditor v-if="entryEditor" :key="entryEditor.entry?.id || 'new'" :entry="entryEditor.entry" :date="entryEditor.date" :project-id="entryEditor.projectId" :projects="data.projects" :entries="data.entries" :submit="submitEntry" :remove="deleteEntry" @export="exportEntry" @close="entryEditor = null" />
   </div>
   </UApp>
 </template>

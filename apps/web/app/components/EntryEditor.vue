@@ -11,7 +11,7 @@ const props = defineProps<{
   submit: (data: EntryInput, id?: string) => Promise<void>
   remove: (id: string) => Promise<void>
 }>()
-const emit = defineEmits<{ close: [] }>()
+const emit = defineEmits<{ close: []; export: [entry: Entry] }>()
 const initialDate = props.entry ? props.entry.date : props.date
 const undated = ref(initialDate === null)
 const form = reactive<Omit<EntryInput, 'references' | 'date'> & { description: string; date: string }>({
@@ -69,7 +69,7 @@ async function remove() {
         <div v-if="incoming.length" class="backlinks-note"><AppIcon name="link" :size="15" /><span>被 {{ incoming.length }} 个事项引用：{{ incoming.map(item => `@${item.title}`).join('、') }}</span></div>
         <div v-if="confirming" class="delete-confirm"><p>确定删除这个事项？其他事项中指向它的引用也会移除。</p><button type="button" class="button danger" @click="remove">确认删除事项</button><button type="button" class="button ghost" @click="confirming = false">取消</button></div>
         <p v-if="error" class="form-error" role="alert">{{ error }}</p>
-        <footer class="form-footer entry-form-footer"><button v-if="entry && !confirming" type="button" class="icon-button danger-text" aria-label="删除事项" @click="confirming = true"><AppIcon name="trash" /></button><label class="checkbox-label completion-field"><input v-model="form.completed" type="checkbox"><span>已完成</span></label><span class="spacer" /><button type="button" class="button secondary" @click="emit('close')">取消</button><button class="button primary" type="submit">{{ busy ? '保存中…' : entry ? '保存修改' : '添加事项' }}<AppIcon v-if="!busy" name="check" :size="17" /></button></footer>
+        <footer class="form-footer entry-form-footer"><div class="entry-footer-settings"><button v-if="entry && !confirming" type="button" class="icon-button danger-text" aria-label="删除事项" @click="confirming = true"><AppIcon name="trash" /></button><label class="checkbox-label completion-field"><input v-model="form.completed" type="checkbox"><span>已完成</span></label></div><div class="entry-footer-actions"><button v-if="entry && !confirming" type="button" class="button secondary" aria-label="导出已保存事项" @click="emit('export', entry)"><AppIcon name="print" :size="16" />导出</button><button type="button" class="button secondary" @click="emit('close')">取消</button><button class="button primary" type="submit">{{ busy ? '保存中…' : entry ? '保存修改' : '添加事项' }}<AppIcon v-if="!busy" name="check" :size="17" /></button></div></footer>
       </fieldset>
     </form>
   </AppDialog>
