@@ -174,7 +174,20 @@ button { transition: background .15s, color .15s; }
 .entry-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 8px; }
 .project-tag { display: inline-flex; align-items: center; gap: 5px; color: var(--project-color); font-size: 10px; overflow-wrap: anywhere; }
 .entry-state { font-size: 10px; color: #aaa2b2; white-space: nowrap; }
-.entry-description { margin-top: 12px; font-size: 13px; line-height: 1.9; color: #70667d; white-space: pre-wrap; white-space: break-spaces; overflow-wrap: anywhere; }
+.entry-description { margin-top: 12px; font-size: 13px; line-height: 1.9; color: #70667d; overflow-wrap: anywhere; }
+.entry-description :is(p, ul, ol, blockquote, pre, h1, h2, h3, h4, h5, h6) { margin: 0; }
+.entry-description :is(p, ul, ol, blockquote, pre, h1, h2, h3, h4, h5, h6) + :is(p, ul, ol, blockquote, pre, h1, h2, h3, h4, h5, h6) { margin-top: .45em; }
+.entry-description :is(ul, ol) { padding-left: 1.5em; }
+.entry-description ul { list-style: disc; }
+.entry-description ol { list-style: decimal; }
+.entry-description blockquote { border-left: 3px solid var(--lavender); padding-left: .8em; }
+.entry-description :is(h1, h2, h3, h4, h5, h6) { font-weight: 700; line-height: inherit; color: #53465f; }
+.entry-description :is(h1, h2) { font-size: 1.2em; }
+.entry-description a { color: var(--primary); text-decoration: underline; }
+.entry-description :is(code, pre) { border-radius: 4px; background: #f4f2f5; }
+.entry-description code { padding: 0 .25em; font-size: .92em; white-space: break-spaces; }
+.entry-description pre { padding: .5em .7em; white-space: pre-wrap; overflow-wrap: anywhere; }
+.entry-description pre code { padding: 0; }
 .entry-description.is-collapsed { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; max-height: 4lh; overflow: hidden; }
 .description-toggle { display: block; margin-top: 4px; padding: 2px 0; border: 0; background: transparent; color: var(--primary); font-size: 12px; cursor: pointer; }
 .description-toggle:hover { text-decoration: underline; }

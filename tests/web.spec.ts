@@ -508,7 +508,7 @@ test('项目总览分组、无日期事项管理、筛选保留与跨视图引�
   expect(errors).toEqual([])
 })
 
-test('描述字面文本、@筛选与键盘中间插入、刷新及引用删除同步', async ({ page, space }, testInfo) => {
+test('描述 Markdown 安全展示、@筛选与键盘中间插入、刷新及引用删除同步', async ({ page, space }, testInfo) => {
   await page.clock.setFixedTime(new Date('2026-09-13T04:00:00Z'))
   const project = await space.project('描述项目')
   const other = await space.project('候选项目')
@@ -569,22 +569,77 @@ test('描述字面文本、@筛选与键盘中间插入、刷新及引用删除�
   expect(source).toMatchObject({ description: saved, references: [second] })
   await page.reload()
   const rendered = page.locator('.entry-card .entry-description')
-  await expect(rendered).toHaveText(`${literal}@相同标题${suffix}`, { useInnerText: false })
-  expect(await rendered.textContent()).toBe(`${literal}@相同标题${suffix}`)
-  await expect(rendered).toHaveCSS('white-space', 'break-spaces')
-  await expect(rendered.locator('img, script, a, strong')).toHaveCount(0)
+  await expect(rendered).toContainText('第一行 <img src=x onerror="window.__descriptionExecuted=true">')
+  await expect(rendered).toContainText('<script>window.__descriptionExecuted=true</script>')
+  await expect(rendered.locator('strong')).toHaveText('粗体')
+  await expect(rendered.locator('a, img, script')).toHaveCount(0)
+  await expect(rendered.locator('.entry-mention')).toHaveText('@相同标题')
   expect(await page.evaluate(() => '__descriptionExecuted' in window)).toBe(false)
   await noOverflow(page)
   expect(await rendered.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
   await page.screenshot({ path: testInfo.outputPath('description-detail.png'), fullPage: true, animations: 'disabled' })
 
   await page.getByRole('button', { name: '编辑事项 描述回归', exact: true }).click()
+  await expect(description).toHaveValue(saved)
   await description.fill(literal + suffix)
   await page.getByRole('button', { name: '保存修改', exact: true }).click()
   await expect(page.getByRole('dialog')).toBeHidden()
   expect((await space.agenda()).entries.find(entry => entry.id === source.id)?.references).toEqual([])
   await page.reload()
   await expect(page.locator('.entry-card .entry-mention')).toHaveCount(0)
+})
+
+test('基础 Markdown 在详情与悬浮卡片展示，编辑时保留源码与引用', async ({ page, space, isMobile }) => {
+  await page.clock.setFixedTime(new Date('2026-09-13T04:00:00Z'))
+  const project = await space.project('Markdown 项目')
+  const target = await space.entry(project.id, '引用目标', '2026-10-02')
+  const mention = serializeMention({ id: target, title: '引用目标' })
+  const source = [
+    '# 标题',
+    '正文 **加粗**、*斜体*、~~删除~~、`内联代码`，以及 [安全链接](https://example.com/path)。',
+    '',
+    '- 第一项',
+    `- 第二项 ${mention}`,
+    '',
+    '> 引用段落',
+    '',
+    '```text',
+    mention,
+    '```',
+    '[危险链接](javascript:alert(1)) <img src=x onerror="window.__descriptionExecuted=true">',
+  ].join('\n')
+  await space.entry(project.id, 'Markdown 事项', '2026-09-13', [target], source)
+  await enter(page, space.email)
+  const detail = page.locator('.entry-card .entry-description')
+  await page.getByRole('button', { name: '显示全部' }).click()
+  await expect(detail.locator('h1')).toHaveText('标题')
+  await expect(detail.locator('strong')).toHaveText('加粗')
+  await expect(detail.locator('em')).toHaveText('斜体')
+  await expect(detail.locator('s')).toHaveText('删除')
+  await expect(detail.locator('p code')).toHaveText('内联代码')
+  await expect(detail.locator('a')).toHaveAttribute('href', 'https://example.com/path')
+  await expect(detail.locator('li')).toHaveCount(2)
+  await expect(detail.locator('blockquote')).toContainText('引用段落')
+  await expect(detail.locator('pre code')).toHaveText(mention)
+  await expect(detail.locator('button.entry-mention')).toHaveText('@引用目标')
+  await expect(detail.locator('a')).toHaveCount(1)
+  await expect(detail.locator('img, script')).toHaveCount(0)
+  expect(await page.evaluate(() => '__descriptionExecuted' in window)).toBe(false)
+  await noOverflow(page)
+  if (!isMobile) {
+    await page.locator('.calendar-entry').filter({ hasText: 'Markdown 事项' }).hover()
+    const tooltip = page.locator('.calendar-tooltip').filter({ hasText: 'Markdown 事项' })
+    await expect(tooltip.locator('h1')).toHaveText('标题')
+    await expect(tooltip.locator('button.entry-mention')).toHaveCount(0)
+  }
+  await page.getByRole('button', { name: '编辑事项 Markdown 事项' }).click()
+  await expect(page.getByRole('textbox', { name: '描述' })).toHaveValue(source)
+  await page.getByRole('button', { name: '取消', exact: true }).click()
+  await page.getByRole('combobox', { name: '工作台视图' }).click()
+  await page.getByRole('option', { name: '项目总览', exact: true }).click()
+  await expect(detail.locator('h1')).toHaveText('标题')
+  await detail.locator('button.entry-mention').click()
+  await expect(page.locator(`#entry-${target}`)).toBeVisible()
 })
 
 test('legacy 引用保留/移除/转为标记，目标改名删除后展示与再保存', async ({ page, space, isMobile }) => {

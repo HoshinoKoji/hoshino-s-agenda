@@ -1,5 +1,23 @@
 # 项目交接
 
+## 本轮：事项描述基础 Markdown 展示（2026-09-23）
+
+已编写：
+
+- 已先将接手时工作区内的描述折叠改动提交为 `8076219`（`feat: collapse long entry descriptions in details`）。
+- 日历详情、项目总览与悬浮卡片的事项描述改用 `markdown-it` 解析基础 Markdown；Vue 白名单节点渲染标题、强调、列表、引用、代码和安全链接等，不插入原始 HTML，也不渲染图片节点。@ 引用作为内联语法保留现有的目标标题更新、删除提示与跳转；代码中的标记仅显示源码。原有四行折叠与展开保留。
+- 事项编辑弹窗仍使用 textarea 显示及保存原始源码，增加输入提示；README 更新使用说明及回归描述。Web 新增 `markdown-it` 和类型依赖，保留 Bun 锁文件。
+- 浏览器回归覆盖 Markdown 结构、原始 HTML/危险链接、引用在列表/代码中的行为、总览与 tooltip 展示、源码编辑往返和旧引用/长描述回归。
+
+已验证：
+
+- `bun run --filter @agenda/web typecheck`、`bun run typecheck:tests`、`git diff --check` 通过。
+- `CHOKIDAR_USEPOLLING=1 bun run test --project=desktop --project=mobile -g '描述 Markdown|基础 Markdown|长描述详情|legacy 引用'` **8/8 通过**；随后扩展总览断言，`CHOKIDAR_USEPOLLING=1 bun run test --project=desktop --project=mobile -g '基础 Markdown'` **2/2 通过**。
+
+待完成 / 边界：
+
+- 本轮 Markdown 改动已提交；未部署，未运行全量回归。
+
 ## 本轮：事项详情截断与展开（2026-09-23）
 
 已编写：
@@ -659,7 +677,7 @@
 - `0002_entry_description.sql` 为 entries 增加 `TEXT NOT NULL DEFAULT ''`；schema 与迁移必须一起维护。部署先迁移 D1，再更新 API/Web，已有记录描述自动为空。
 - `shared/mentions.ts` 负责 `@[标题](item:ID)` 转义/解析、去重、legacy 合并和 UTF-16 光标查询；标题转义反斜线、方括号和 LF/CR，普通邮箱/畸形标记保持文本。UI 保存时合并有效标记与 legacy 并过滤自身/缺失目标；API 不自动解析描述，仍以已校验的显式 references 为关系来源。
 - `EntryDescriptionEditor.vue` 为 textarea + listbox，支持标题/项目/日期多词筛选、键盘与 IME、中间插入保留后缀、Escape 阻止外层 dialog cancel。`EntryEditor.vue` 初始化无标记旧引用，显式转为标记后移出 legacy，避免删除标记时关系复活。
-- `EntryDescription.vue` 仅 Vue 文本插值，不渲染 HTML/Markdown；可跳转标记必须存在于 API references 且非自身。按 ID 显示目标当前标题，删除后用旧标记标题显示「已删除」。月视图 `CalendarGrid.vue` 的 `UTooltip` 使用 portal 和非交互描述；手机沿用每日详情阅读完整描述。
+- `EntryMarkdown.vue` 用 markdown-it 解析并以 Vue 白名单元素展示，原始 HTML 不生成 DOM；可跳转标记必须存在于 API references 且非自身。按 ID 显示目标当前标题，删除后用旧标记标题显示「已删除」。`EntryDescription.vue` 管理四行折叠；月视图 `CalendarGrid.vue` 的 `UTooltip` 使用 portal 和非交互描述；手机沿用每日详情阅读完整描述。
 - 事项 `date` 是 `YYYY-MM-DD` 日历日期或 `null`（未设日期）；POST/PUT 必须显式传入，缺省不表示无日期。前端使用 `apps/web/app/utils/dates.ts` 的本地日期辅助函数，避免用 UTC ISO 截断替代而导致日期偏移；日期计算/筛选需先处理 null。
 - `0003_optional_entry_date.sql` 在重建 entries 前备份并移除引用表，迁移后恢复全部关系及索引。数据库 schema 与 API/Web 必须配套更新；上线先迁移再部署。
 - `app.vue` 的 `workspaceView`（calendar/overview）与原 `view`（month/day）分离；`ProjectOverview.vue` 负责项目分组与排序，`EntryList.vue` 为总览和每日详情共享事项列表，负责描述/引用与 backlinks 映射。引用定位的卡片 ID 仍为 `entry-${id}`，两种视图互斥渲染，避免重复 ID。

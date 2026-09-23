@@ -114,7 +114,7 @@ function keyup(event: KeyboardEvent) {
       @input="input" @click="updateQuery" @select="updateQuery" @focus="updateQuery" @keyup="keyup" @keydown="keydown" @blur="close"
       @compositionstart="composing = true; close()" @compositionend="compositionEnd"
     />
-    <div class="description-help"><p :id="`${id}-help`" class="field-help">输入 @ 搜索标题、项目或日期；↑↓ 选择，Enter 插入，Esc 收起。</p><span class="muted">{{ modelValue.length }} / {{ DESCRIPTION_MAX_LENGTH }}</span></div>
+    <div class="description-help"><p :id="`${id}-help`" class="field-help">支持 Markdown，编辑时显示源码。输入 @ 搜索事项；↑↓ 选择，Enter 插入，Esc 收起。</p><span class="muted">{{ modelValue.length }} / {{ DESCRIPTION_MAX_LENGTH }}</span></div>
     <div v-if="query" class="mention-picker">
       <div ref="list" :id="`${id}-list`" class="reference-options" role="listbox" aria-label="引用事项候选">
         <button
