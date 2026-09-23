@@ -300,6 +300,7 @@ body:has(dialog[open]) { overflow: hidden; }
 input::placeholder, textarea::placeholder { color: #b3aabb; }
 .field input:focus, .field select:focus, .field textarea:focus { border-color: var(--primary); }
 .field textarea { resize: vertical; min-height: 120px; line-height: 1.8; overscroll-behavior: contain; }
+.description-editor textarea { resize: none; overflow: hidden; overscroll-behavior: auto; }
 .description-help { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 12px; }
 .description-help .field-help { margin-top: 0; font-weight: 400; }
 .description-help > span { white-space: nowrap; font-size: 10px; }

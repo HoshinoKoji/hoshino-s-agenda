@@ -31,6 +31,17 @@ const candidates = computed(() => {
 const activeId = computed(() => query.value && candidates.value[active.value] ? `${id}-option-${active.value}` : undefined)
 
 function close() { query.value = null }
+function fitTextarea() {
+  const input = textarea.value
+  if (!input) return
+  input.style.height = 'auto'
+  input.style.height = `${input.scrollHeight + input.offsetHeight - input.clientHeight}px`
+}
+onMounted(() => {
+  requestAnimationFrame(fitTextarea)
+  window.addEventListener('resize', fitTextarea)
+})
+watch(() => props.modelValue, () => nextTick(fitTextarea))
 function updateQuery() {
   const input = textarea.value
   if (!input || props.disabled || composing.value || document.activeElement !== input) return
@@ -40,6 +51,7 @@ function updateQuery() {
 }
 function input(event: Event) {
   emit('update:modelValue', (event.target as HTMLTextAreaElement).value)
+  fitTextarea()
   feedback.value = ''
   updateQuery()
 }
@@ -48,7 +60,10 @@ function compositionEnd() {
   clearTimeout(compositionTimer)
   compositionTimer = setTimeout(() => { composing.value = false; updateQuery() }, 0)
 }
-onBeforeUnmount(() => clearTimeout(compositionTimer))
+onBeforeUnmount(() => {
+  clearTimeout(compositionTimer)
+  window.removeEventListener('resize', fitTextarea)
+})
 watch(() => props.disabled, disabled => { if (disabled) close() })
 watch(candidates, items => { active.value = Math.min(active.value, Math.max(0, items.length - 1)) })
 

@@ -1,5 +1,21 @@
 # 项目交接
 
+## 本轮：事项编辑弹窗长描述改由弹窗滚动（2026-09-23）
+
+已编写：
+
+- 描述 textarea 随内容自动增高，编辑、清空及视口尺寸变化时重新适配；取消描述框自身滚动及手动拉伸，让滚轮落在描述上时由弹窗 `.dialog-inner` 滚动。
+- 长描述浏览器回归新增桌面/手机弹窗检查：完整描述、textarea 无内部滚动、在描述上滚轮滚动弹窗、缩短内容后高度恢复。
+
+已验证：
+
+- `bun run --filter @agenda/web typecheck`、`bun run typecheck:tests`、`git diff --check` 通过。
+- `CHOKIDAR_USEPOLLING=1 bun run test --project=desktop --project=mobile -g '长描述详情'` **2/2 通过**。先前未通过的运行定位到 textarea 原有 `overscroll-behavior: contain` 阻断滚轮传递，修正后专项复验通过。
+
+待完成 / 边界：
+
+- 本轮未重新运行全量浏览器回归，未部署。
+
 ## 本轮：事项编辑弹窗底部操作布局（2026-09-23）
 
 已编写：
