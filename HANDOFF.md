@@ -1,5 +1,22 @@
 # 项目交接
 
+## 本轮：事项详情截断与展开（2026-09-23）
+
+已编写：
+
+- 日历详情、项目总览的事项描述默认最多显示 4 行，溢出时显示主题色无框「显示全部」按钮，展开后可「收起」。短描述不显示按钮；完整文本与引用保留。
+- `EntryDescription.vue` 增加可选折叠能力，通过 ResizeObserver 随宽度和内容变化检测溢出；按钮提供 aria-expanded / aria-controls，键盘聚焦引用时展开内容，编辑描述后重置折叠。悬浮详情沿用完整描述。
+- 扩展现有长描述回归，验证折叠高度、展开全文与再次收起。初次测试发现内联引用会撑高行框，补充 `max-height: 4lh` 后通过。
+
+已验证：
+
+- `bun run --filter @agenda/web typecheck`、`bun run typecheck:tests`、`git diff --check` 通过。
+- `CHOKIDAR_USEPOLLING=1 bun run test --project=desktop --project=mobile -g '长描述详情'` **2/2 通过**，包含展开/收起、无横向溢出及桌面 tooltip 原有回归。
+
+待完成 / 边界：
+
+- 未运行全量回归，未提交或部署。
+
 ## 本轮：已完成统计兼任显隐按钮（2026-09-21）
 
 已编写：
