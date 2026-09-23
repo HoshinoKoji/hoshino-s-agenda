@@ -9,6 +9,12 @@ export function parseDate(value: string): Date {
   return date
 }
 
+export function startOfWeek(value: string): Date {
+  const date = parseDate(value)
+  date.setDate(date.getDate() - (date.getDay() + 6) % 7)
+  return date
+}
+
 export function formatDate(value: string): string {
   return parseDate(value).toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' })
 }

@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { zh_cn } from '@nuxt/ui/locale'
 import type { Entry, EntryInput, Project } from '../../../shared/types'
-import { dateKey, formatDate, parseDate } from '~/utils/dates'
+import { dateKey, formatDate, parseDate, startOfWeek } from '~/utils/dates'
 
 const email = ref('')
 const hydrated = ref(false)
 const today = ref(dateKey(new Date()))
 const selected = ref(today.value)
-const view = ref<'month' | 'day'>('month')
+const view = ref<'month' | 'week' | 'day'>('month')
 const workspaceView = ref<'calendar' | 'overview'>('calendar')
 const showCompletedProjects = ref(false)
 const month = ref(new Date(new Date().getFullYear(), new Date().getMonth(), 1, 12))
@@ -20,6 +20,7 @@ let clock: ReturnType<typeof setInterval> | undefined
 
 onMounted(() => {
   try { email.value = localStorage.getItem('agenda:email') || '' } catch { /* Storage is optional. */ }
+  if (window.matchMedia('(max-width: 600px)').matches) view.value = 'week'
   hydrated.value = true
   clock = setInterval(() => { today.value = dateKey(new Date()) }, 60_000)
 })
@@ -40,9 +41,19 @@ const filteredEntries = computed(() => data.value.entries.filter(entry => !activ
 const monthPrefix = computed(() => dateKey(month.value).slice(0, 7))
 const monthEntries = computed(() => filteredEntries.value.filter(entry => entry.date?.startsWith(monthPrefix.value)))
 const completedCount = computed(() => monthEntries.value.filter(entry => entry.completed).length)
+const weekStart = computed(() => startOfWeek(selected.value))
+const weekEnd = computed(() => { const date = new Date(weekStart.value); date.setDate(date.getDate() + 6); return date })
+const weekEntries = computed(() => filteredEntries.value.filter(entry => entry.date !== null && entry.date >= dateKey(weekStart.value) && entry.date <= dateKey(weekEnd.value)))
+const weekCompleted = computed(() => weekEntries.value.filter(entry => entry.completed).length)
+const periodEntries = computed(() => view.value === 'week' ? weekEntries.value : monthEntries.value)
+const periodCompleted = computed(() => view.value === 'week' ? weekCompleted.value : completedCount.value)
 const selectedEntries = computed(() => filteredEntries.value.filter(entry => entry.date === selected.value))
 const selectedCompleted = computed(() => selectedEntries.value.filter(entry => entry.completed).length)
-const monthLabel = computed(() => `${month.value.getFullYear()}.${month.value.getMonth() + 1}`)
+const monthLabel = computed(() => {
+  if (view.value !== 'week') return `${month.value.getFullYear()}.${month.value.getMonth() + 1}`
+  const label = (date: Date) => `${date.getFullYear()}.${date.getMonth() + 1}.${date.getDate()}`
+  return `${label(weekStart.value)}–${label(weekEnd.value)}`
+})
 const syncedTime = computed(() => syncedAt.value?.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }))
 const currentProject = computed(() => projectMap.value.get(activeProject.value))
 const projectCounts = computed(() => {
@@ -128,23 +139,25 @@ function followReference(entry: Entry | undefined) {
         <template v-else>
         <section class="calendar-card" :aria-busy="loading">
           <header class="calendar-toolbar">
-            <div class="month-heading"><h2>{{ monthLabel }}</h2><div class="summary-counts" aria-label="本月概览"><span>总数 <strong>{{ monthEntries.length }}</strong></span><span class="summary-divider" aria-hidden="true">/</span><span>未完成 <strong>{{ monthEntries.length - completedCount }}</strong></span></div></div>
+            <div class="month-heading"><h2>{{ monthLabel }}</h2><div class="summary-counts" :aria-label="view === 'week' ? '本周概览' : '本月概览'"><span>总数 <strong>{{ periodEntries.length }}</strong></span><span class="summary-divider" aria-hidden="true">/</span><span>未完成 <strong>{{ periodEntries.length - periodCompleted }}</strong></span></div></div>
             <div class="calendar-controls">
               <span v-if="currentProject" class="filter-chip"><i class="project-dot" :style="{ background: currentProject.color }" /><span class="truncate">{{ currentProject.name }}</span><button class="icon-button" aria-label="清除项目筛选" @click="activeProject = ''"><AppIcon name="close" :size="13" /></button></span>
-              <DatePicker v-if="view === 'day'" class="day-date-input" label="日视图日期" min="0100-01-01" :model-value="selected" @update:model-value="selectDate" />
+              <DatePicker v-if="view !== 'month'" class="day-date-input" :label="view === 'week' ? '周视图日期' : '日视图日期'" min="0100-01-01" :model-value="selected" @update:model-value="selectDate" />
               <button class="button today-button" @click="selectDate(today)">今天</button>
               <div class="month-navigation">
-                <button class="icon-button" :aria-label="view === 'day' ? '前一天' : '上个月'" @click="view === 'day' ? changeDay(-1) : changeMonth(-1)"><AppIcon name="chevronLeft" :size="18" /></button>
-                <button class="icon-button" :aria-label="view === 'day' ? '后一天' : '下个月'" @click="view === 'day' ? changeDay(1) : changeMonth(1)"><AppIcon name="chevronRight" :size="18" /></button>
+                <button class="icon-button" :aria-label="view === 'day' ? '前一天' : view === 'week' ? '前一周' : '上个月'" @click="view === 'day' ? changeDay(-1) : view === 'week' ? changeDay(-7) : changeMonth(-1)"><AppIcon name="chevronLeft" :size="18" /></button>
+                <button class="icon-button" :aria-label="view === 'day' ? '后一天' : view === 'week' ? '后一周' : '下个月'" @click="view === 'day' ? changeDay(1) : view === 'week' ? changeDay(7) : changeMonth(1)"><AppIcon name="chevronRight" :size="18" /></button>
               </div>
               <div class="view-switch" role="group" aria-label="日历视图">
                 <button :aria-pressed="view === 'month'" @click="view = 'month'">月</button>
+                <button :aria-pressed="view === 'week'" @click="view = 'week'">周</button>
                 <button :aria-pressed="view === 'day'" @click="view = 'day'">日</button>
               </div>
               <button class="button primary add-main" :disabled="loading || saving" @click="addEntry()"><AppIcon name="plus" :size="18" />事项</button>
             </div>
           </header>
           <CalendarGrid v-if="view === 'month'" :month="month" :selected="selected" :today="today" :entries="filteredEntries" :all-entries="data.entries" :projects="data.projects" @select="selectDate" @edit="editEntry" @add="addEntry" />
+          <CalendarWeek v-else-if="view === 'week'" :start="weekStart" :selected="selected" :today="today" :entries="filteredEntries" :all-entries="data.entries" :projects="data.projects" @select="selectDate" @edit="editEntry" @add="addEntry" />
           <footer v-if="view === 'month'" class="calendar-footer"><span><i class="legend-dot" />点击日期查看详情，点击事项进行编辑</span><span>{{ currentProject ? currentProject.name : '全部项目' }}<span class="footer-divider">·</span>周一为一周的开始</span></footer>
         </section>
 

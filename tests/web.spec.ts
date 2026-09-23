@@ -116,7 +116,7 @@ test('项目排序拖拽、菜单、刷新、视图同步与保存失败', async
   await noOverflow(page)
 })
 
-test('邮箱进入、项目和事项编辑、完成、双向引用跳转与删除', async ({ page, space, otherSpace, baseURL }, testInfo) => {
+test('邮箱进入、项目和事项编辑、完成、双向引用跳转与删除', async ({ page, space, otherSpace, baseURL, isMobile }, testInfo) => {
   test.setTimeout(60_000)
   const errors: string[] = []
   const apiRequests: Request[] = []
@@ -135,6 +135,7 @@ test('邮箱进入、项目和事项编辑、完成、双向引用跳转与删�
   await expect(page.locator('.sync-button')).toContainText('已与云端同步')
   await expect(page.getByRole('heading', { name: '(空)', exact: true })).toBeVisible()
   await expect(page.locator('.sync-button')).toHaveText('已与云端同步 · 12:00:00')
+  if (isMobile) await page.getByRole('button', { name: '月', exact: true }).click()
 
   for (const [name, color] of [['个人网站', '颜色 1'], ['阅读计划', '颜色 2']] as const) {
     await page.getByRole('button', { name: '新建项目', exact: true }).click()
@@ -223,6 +224,7 @@ test('邮箱进入、项目和事项编辑、完成、双向引用跳转与删�
   await expect(page.locator('.entry-title')).toHaveText('首页设计定稿')
   await expect(page.locator('.entry-description button')).toHaveText('@整理设计灵感')
   await expect(page.locator('.reference-chip.backlink')).toHaveCount(1)
+  if (isMobile) await page.getByRole('button', { name: '月', exact: true }).click()
   await switchSpace(page, otherSpace.email)
   await expect(projectNav.getByRole('button', { name: /^网站计划/ })).toHaveCount(0)
   await expect(page.locator('.entry-card')).toHaveCount(0)
@@ -306,6 +308,84 @@ test('流式日视图支持日期导航、筛选、编辑和跨月引用', async
   await expect(page.locator('.entry-card')).toHaveCount(2)
 })
 
+test('周视图七日纵列、跨年导航与桌面悬浮/手机点击详情', async ({ page, space, isMobile }, testInfo) => {
+  await page.clock.setFixedTime(new Date('2026-12-31T04:00:00Z'))
+  const project = await space.project('周视图项目')
+  const other = await space.project('其他项目')
+  await space.entry(project.id, '周一计划', '2026-12-28')
+  const todayEntry = await space.entry(project.id, '跨年准备', '2026-12-31', [], '**准备内容**')
+  await space.entry(project.id, '同日第二事项', '2026-12-31')
+  await space.entry(other.id, '其他项目事项', '2026-12-31')
+  const completed = await space.entry(project.id, '周日总结', '2027-01-03')
+  await space.api.patch(`/api/entries/${completed}`, { data: { completed: true } })
+  await space.entry(project.id, '下周事项', '2027-01-07')
+  await enter(page, space.email)
+  await expect(page.getByRole('button', { name: isMobile ? '周' : '月', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  if (!isMobile) await page.getByRole('button', { name: '周', exact: true }).click()
+  const week = page.getByRole('group', { name: '周日历' })
+  await expect(week.locator('.week-row')).toHaveCount(7)
+  await expect(week.locator('.week-row').first()).toHaveAttribute('data-date', '2026-12-28')
+  await expect(week.locator('.week-row').last()).toHaveAttribute('data-date', '2027-01-03')
+  await expect(page.locator('.month-heading h2')).toHaveText('2026.12.28–2027.1.3')
+  await expect(page.getByLabel('本周概览')).toHaveText(/总数\s*5\s*\/\s*未完成\s*4/)
+  await expect(week.locator('[data-date="2026-12-31"]')).toHaveClass(/is-today/)
+  await expect(week.locator('[data-date="2026-12-31"]')).toHaveClass(/is-selected/)
+  await expect(week.locator('[data-date="2026-12-31"] .week-entry')).toHaveCount(3)
+  await expect(week.locator('[data-date="2027-01-03"] .week-entry')).toHaveClass(/completed/)
+  const item = week.locator('[data-date="2026-12-31"] .week-entry').first()
+  if (isMobile) {
+    await item.click()
+    await expect(page.locator('.calendar-tooltip')).toBeVisible()
+    await expect(page.locator('.calendar-tooltip-title')).toHaveText('跨年准备')
+    await expect(page.locator('.calendar-tooltip .entry-description strong')).toHaveText('准备内容')
+    await expect(page.getByRole('dialog', { name: '编辑事项' })).toHaveCount(0)
+    await page.keyboard.press('Escape')
+  } else {
+    await item.hover()
+    await expect(page.locator('.calendar-tooltip')).toContainText('跨年准备')
+    await item.click()
+    await expect(page.getByRole('dialog', { name: '编辑事项' })).toBeVisible()
+    await page.getByRole('button', { name: '取消', exact: true }).click()
+  }
+  await week.locator('[data-date="2026-12-29"] .week-add').click()
+  await expect(page.getByLabel('记录日期')).toHaveText('2026-12-29')
+  await page.getByRole('button', { name: '取消', exact: true }).click()
+  await week.locator('[data-date="2027-01-03"] .week-date').click()
+  await expect(page.locator('.entry-title')).toHaveText('周日总结')
+  if (isMobile) {
+    await page.getByRole('button', { name: '编辑事项 周日总结' }).click()
+    await expect(page.getByRole('dialog', { name: '编辑事项' })).toBeVisible()
+    await page.getByRole('button', { name: '取消', exact: true }).click()
+  }
+  await page.getByRole('button', { name: '后一周' }).click()
+  await expect(page.locator('.month-heading h2')).toHaveText('2027.1.4–2027.1.10')
+  await expect(week.locator('.week-row').first()).toHaveAttribute('data-date', '2027-01-04')
+  await expect(week.locator('[data-date="2027-01-10"]')).toHaveClass(/is-selected/)
+  await expect(page.getByLabel('本周概览')).toHaveText(/总数\s*1\s*\/\s*未完成\s*1/)
+  await page.getByRole('button', { name: '前一周' }).click()
+  await expect(week.locator('[data-date="2027-01-03"]')).toHaveClass(/is-selected/)
+  await page.getByRole('button', { name: '今天', exact: true }).click()
+  await expect(page.getByLabel('周视图日期')).toHaveText('2026-12-31')
+  await page.getByRole('navigation', { name: '项目筛选' }).getByRole('button', { name: /^周视图项目/ }).click()
+  await expect(page.getByLabel('本周概览')).toHaveText(/总数\s*4\s*\/\s*未完成\s*3/)
+  await expect(week.locator('.week-entry').filter({ hasText: '其他项目事项' })).toHaveCount(0)
+  await page.getByRole('navigation', { name: '项目筛选' }).getByRole('button', { name: /^全部项目/ }).click()
+  await page.getByRole('button', { name: '月', exact: true }).click()
+  await expect(page.getByRole('group', { name: '月日历' })).toBeVisible()
+  await page.getByRole('button', { name: '周', exact: true }).click()
+  await expect(week.locator('.week-row')).toHaveCount(7)
+  await page.getByRole('combobox', { name: '工作台视图' }).click()
+  await page.getByRole('option', { name: '项目总览', exact: true }).click()
+  await page.getByRole('combobox', { name: '工作台视图' }).click()
+  await page.getByRole('option', { name: '项目日历', exact: true }).click()
+  await expect(page.getByRole('button', { name: '周', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.locator(`#entry-${todayEntry}`)).toBeVisible()
+  await noOverflow(page)
+  await page.screenshot({ path: testInfo.outputPath('week-view.png'), fullPage: true, animations: 'disabled' })
+  await page.reload()
+  await expect(page.getByRole('button', { name: isMobile ? '周' : '月', exact: true })).toHaveAttribute('aria-pressed', 'true')
+})
+
 test('项目总览分组、无日期事项管理、筛选保留与跨视图引用', async ({ page, space, isMobile }, testInfo) => {
   test.setTimeout(60_000)
   const errors: string[] = []
@@ -331,6 +411,7 @@ test('项目总览分组、无日期事项管理、筛选保留与跨视图引�
   }
   const nav = page.getByRole('navigation', { name: '项目筛选' })
   // Selecting a weekday or weekend cell only adds its border.
+  if (isMobile) await page.getByRole('button', { name: '月', exact: true }).click()
   for (const date of ['2026-09-14', '2026-09-12']) {
     const day = page.locator(`[data-date="${date}"]`)
     const background = await day.evaluate(element => getComputedStyle(element).backgroundColor)
