@@ -159,7 +159,7 @@ button { transition: background .15s, color .15s; }
 .calendar-footer > span:first-child { display: flex; align-items: center; gap: 7px; }
 .legend-dot { background: #bcaed4; }
 .footer-divider { margin: 0 8px; }
-.calendar-tooltip { width: 360px; max-width: min(calc(100vw - 24px), var(--reka-tooltip-content-available-width)); max-height: min(360px, calc(100dvh - 24px), var(--reka-tooltip-content-available-height)); overflow: auto; overscroll-behavior: contain; overflow-wrap: anywhere; color: #5c5368; }
+.calendar-tooltip { width: 360px; max-width: min(calc(100vw - 24px), var(--reka-popover-content-available-width, var(--reka-tooltip-content-available-width, 100vw))); max-height: min(360px, calc(100dvh - 24px), var(--reka-popover-content-available-height, var(--reka-tooltip-content-available-height, 100dvh))); overflow: auto; overscroll-behavior: contain; overflow-wrap: anywhere; color: #5c5368; }
 .calendar-tooltip-title { display: block; font-size: 13px; font-weight: 500; white-space: pre-wrap; }
 .calendar-tooltip-meta { display: flex; flex-wrap: wrap; gap: 6px 10px; margin-top: 8px; font-size: 10px; color: #93879f; }
 .calendar-tooltip-meta > span:first-child { display: inline-flex; align-items: center; gap: 5px; }

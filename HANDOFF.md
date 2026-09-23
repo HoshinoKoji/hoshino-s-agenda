@@ -1,5 +1,21 @@
 # 项目交接
 
+## 本轮：修复手机周视图长事项详情定位（2026-09-23）
+
+已编写：
+
+- 修正共用 `.calendar-tooltip` 的尺寸限制：手机周视图使用 `UPopover`，改为优先读取 popover 的可用宽高变量，桌面 tooltip 继续读取 tooltip 变量，并提供视口兜底，防止长标题/描述让浮层越过屏幕上缘。
+- 新增长标题和长描述在 320×568 手机视口的回归：分别从周一、周日打开详情，检查标题与浮层均在可视区域内、浮层内部可滚动且页面无横向溢出。
+
+已验证：
+
+- 修复前新增手机用例复现定位越界；修复后专项通过。`bun run --filter @agenda/web typecheck`、`bun run typecheck:tests`、`git diff --check` 通过。
+- `CHOKIDAR_USEPOLLING=1 bun run test --project=desktop --project=mobile -g '周视图|长描述详情'`：5 通过、1 桌面专属跳过；追加周日边界后，`CHOKIDAR_USEPOLLING=1 bun run test --project=mobile -g '手机周视图长标题详情'`：1/1 通过。
+
+待完成 / 边界：
+
+- 未验证实体手机或其他浏览器，未执行远程部署。
+
 ## 本轮：周视图与手机默认视图（2026-09-23）
 
 已编写：

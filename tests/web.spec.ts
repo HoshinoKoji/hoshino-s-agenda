@@ -386,6 +386,32 @@ test('周视图七日纵列、跨年导航与桌面悬浮/手机点击详情', a
   await expect(page.getByRole('button', { name: isMobile ? '周' : '月', exact: true })).toHaveAttribute('aria-pressed', 'true')
 })
 
+test('手机周视图长标题详情保持在可视区域内', async ({ page, space, isMobile }) => {
+  test.skip(!isMobile)
+  await page.clock.setFixedTime(new Date('2026-12-31T04:00:00Z'))
+  await page.setViewportSize({ width: 320, height: 568 })
+  const project = await space.project('长标题项目')
+  const title = '需要完整查看的较长事项标题'.repeat(13)
+  await space.entry(project.id, title, '2026-12-28', [], '详细内容'.repeat(700))
+  await space.entry(project.id, title, '2027-01-03', [], '详细内容'.repeat(700))
+  await enter(page, space.email)
+  for (const date of ['2026-12-28', '2027-01-03']) {
+    await page.getByRole('group', { name: '周日历' }).locator(`[data-date="${date}"] .week-entry`).click()
+    const preview = page.locator('.calendar-tooltip')
+    await expect(preview.locator('.calendar-tooltip-title')).toHaveText(title)
+    await expect.poll(async () => preview.evaluate(element => {
+      const box = element.getBoundingClientRect()
+      const heading = element.querySelector('.calendar-tooltip-title')!.getBoundingClientRect()
+      return box.top >= 0 && box.bottom <= window.innerHeight && heading.top >= 0 && element.scrollTop === 0 && element.scrollHeight > element.clientHeight
+    })).toBe(true)
+    await preview.evaluate(element => { element.scrollTop = element.scrollHeight })
+    await expect.poll(async () => preview.evaluate(element => element.scrollTop > 0)).toBe(true)
+    await page.keyboard.press('Escape')
+    await expect(preview).toBeHidden()
+  }
+  await noOverflow(page)
+})
+
 test('项目总览分组、无日期事项管理、筛选保留与跨视图引用', async ({ page, space, isMobile }, testInfo) => {
   test.setTimeout(60_000)
   const errors: string[] = []
