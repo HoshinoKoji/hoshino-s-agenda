@@ -28,13 +28,16 @@ async function editSidebarProject(page: Page, name: string) {
   await expect(page.getByRole('textbox', { name: '项目名称' })).toBeFocused()
 }
 
-test('项目排序拖拽、菜单、刷新、视图同步与保存失败', async ({ page, space, isMobile }, testInfo) => {
+test('统一项目排序弹窗、菜单、刷新、视图同步与保存失败', async ({ page, space, isMobile }, testInfo) => {
   const a = await space.project('甲')
   const b = await space.project('乙')
   const c = await space.project('丙')
   await enter(page, space.email)
   const names = page.locator('.project-nav-row .truncate')
   await expect(names).toHaveText(['甲', '乙', '丙'])
+  await expect(page.locator('.project-nav-row .project-drag-handle')).toHaveCount(0)
+  const orderButton = page.getByRole('button', { name: '编辑项目排序' })
+  await expect(orderButton).toBeEnabled()
   let releaseSave!: () => void
   let releaseRefresh!: () => void
   let refreshing = false
@@ -47,7 +50,7 @@ test('项目排序拖拽、菜单、刷新、视图同步与保存失败', async
   await page.getByRole('menuitem', { name: '下移', exact: true }).click()
   const pending = page.getByRole('status').filter({ hasText: '正在调整项目顺序' })
   await expect(pending).toBeVisible()
-  await expect(page.getByRole('button', { name: '拖动排序 甲', exact: true })).toBeDisabled()
+  await expect(orderButton).toBeDisabled()
   await expect(page.getByRole('button', { name: '项目操作 甲', exact: true })).toBeDisabled()
   await noOverflow(page)
   await page.screenshot({ path: testInfo.outputPath('project-sort-pending.png') })
@@ -64,40 +67,65 @@ test('项目排序拖拽、菜单、刷新、视图同步与保存失败', async
   await expect(page.getByRole('menuitem', { name: '下移', exact: true })).toBeDisabled()
   await page.keyboard.press('Escape')
 
-  const handle = page.getByRole('button', { name: '拖动排序 乙', exact: true })
-  await handle.scrollIntoViewIfNeeded()
-  if (isMobile) await page.locator('.project-nav').evaluate(nav => {
-    const row = nav.querySelector('.project-nav-row')!
-    nav.scrollLeft += row.getBoundingClientRect().left - nav.getBoundingClientRect().left
-  })
+  await orderButton.click()
+  const dialog = page.getByRole('dialog', { name: '调整项目顺序' })
+  const orderRows = dialog.locator('.project-order-row')
+  await expect(orderRows).toContainText(['乙', '甲', '丙'])
+  await dialog.getByRole('button', { name: /调整 乙 的顺序/ }).focus()
+  await page.keyboard.press('ArrowDown')
+  await expect(orderRows).toContainText(['甲', '乙', '丙'])
+  await expect(names).toHaveText(['乙', '甲', '丙'])
+  await dialog.getByRole('button', { name: '取消', exact: true }).click()
+  await expect(dialog).toBeHidden()
+  await orderButton.click()
+  await expect(orderRows).toContainText(['乙', '甲', '丙'])
+  const handle = dialog.getByRole('button', { name: /调整 乙 的顺序/ })
   const start = (await handle.boundingBox())!
-  const target = (await page.locator(`[data-project-id="${a.id}"]`).boundingBox())!
+  const target = (await orderRows.last().boundingBox())!
   const x = start.x + start.width / 2
   const y = start.y + start.height / 2
-  const endX = isMobile ? target.x + target.width - 10 : x
-  const endY = isMobile ? y : target.y + target.height - 4
+  const endY = target.y + target.height - 4
   if (isMobile) {
     const session = await page.context().newCDPSession(page)
     await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] })
-    await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: endX, y: endY }] })
-    await expect(page.locator('.project-dragging')).toHaveCount(1)
+    await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: endY }] })
+    await expect(dialog.locator('.project-order-dragging')).toHaveCount(1)
     await page.screenshot({ path: testInfo.outputPath('project-sort-drag.png') })
     await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
     await session.detach()
   } else {
     await page.mouse.move(x, y)
     await page.mouse.down()
-    await page.mouse.move(endX, endY, { steps: 8 })
-    await expect(page.locator('.project-dragging')).toHaveCount(1)
+    await page.mouse.move(x, endY, { steps: 8 })
+    await expect(dialog.locator('.project-order-dragging')).toHaveCount(1)
     await page.screenshot({ path: testInfo.outputPath('project-sort-drag.png') })
     await page.mouse.up()
   }
-  await expect(names).toHaveText(['甲', '乙', '丙'])
-  await expect(page.locator('.sync-button')).toBeEnabled()
-  expect((await space.agenda()).projects.map(project => project.id)).toEqual([a.id, b.id, c.id])
+  await expect(orderRows).toContainText(['甲', '丙', '乙'])
+  await expect(names).toHaveText(['乙', '甲', '丙'])
+  await page.screenshot({ path: testInfo.outputPath('project-sort-editor.png'), animations: 'disabled' })
+  let releaseEditorSave!: () => void
+  const editorSaveGate = new Promise<void>(resolve => { releaseEditorSave = resolve })
+  await page.route('**/api/projects/order', async route => { await editorSaveGate; await route.continue() })
+  await dialog.getByRole('button', { name: '保存排序' }).click()
+  await expect(dialog.getByRole('button', { name: '保存中…' })).toBeDisabled()
+  await expect(dialog.getByRole('button', { name: '关闭弹窗' })).toBeDisabled()
+  await expect(pending).toBeVisible()
+  releaseEditorSave()
+  await expect(dialog).toBeHidden()
+  await page.unroute('**/api/projects/order')
+  await expect(names).toHaveText(['甲', '丙', '乙'])
+  expect((await space.agenda()).projects.map(project => project.id)).toEqual([a.id, c.id, b.id])
   await expect(page.getByRole('button', { name: /^全部项目/ })).toHaveAttribute('aria-pressed', 'true')
+  await orderButton.click()
+  await dialog.getByRole('button', { name: /调整 丙 的顺序/ }).focus()
+  await page.keyboard.press('ArrowUp')
+  await expect(orderRows).toContainText(['丙', '甲', '乙'])
+  await dialog.getByRole('button', { name: '保存排序' }).click()
+  await expect(names).toHaveText(['丙', '甲', '乙'])
   await page.getByRole('button', { name: '项目操作 丙', exact: true }).click()
-  await page.getByRole('menuitem', { name: '上移', exact: true }).click()
+  await expect(page.getByRole('menuitem', { name: '上移', exact: true })).toBeDisabled()
+  await page.getByRole('menuitem', { name: '下移', exact: true }).click()
   await expect(names).toHaveText(['甲', '丙', '乙'])
   await page.reload()
   await expect(names).toHaveText(['甲', '丙', '乙'])
@@ -108,6 +136,14 @@ test('项目排序拖拽、菜单、刷新、视图同步与保存失败', async
   await expect(page.getByLabel('所属项目').locator('option')).toHaveText(['甲', '丙', '乙'])
   await page.getByRole('button', { name: '取消', exact: true }).click()
   await page.route('**/api/projects/order', route => route.fulfill({ status: 503, json: { error: '排序保存失败' } }))
+  await orderButton.click()
+  await dialog.getByRole('button', { name: /调整 甲 的顺序/ }).focus()
+  await page.keyboard.press('ArrowDown')
+  await dialog.getByRole('button', { name: '保存排序' }).click()
+  await expect(dialog.getByRole('alert')).toContainText('排序保存失败')
+  await expect(orderRows).toContainText(['丙', '甲', '乙'])
+  await expect(names).toHaveText(['甲', '丙', '乙'])
+  await dialog.getByRole('button', { name: '取消', exact: true }).click()
   await page.getByRole('button', { name: '项目操作 甲', exact: true }).click()
   await page.getByRole('menuitem', { name: '下移', exact: true }).click()
   await expect(page.getByRole('alert')).toContainText('排序保存失败')

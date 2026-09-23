@@ -72,12 +72,12 @@ export function useAgenda(email: Ref<string>) {
   }
 
   async function reorderProjects(projectIds: string[]) {
-    if (saving.value || loading.value) return
+    if (saving.value || loading.value) return false
     const previousIds = data.value.projects.map(project => project.id)
     const account = email.value
     orderingAccount.value = account
-    try { await mutate('/projects/order', 'PUT', { projectIds, previousIds }) }
-    catch (cause) { if (email.value === account) error.value = (cause as Error).message }
+    try { await mutate('/projects/order', 'PUT', { projectIds, previousIds }); return email.value === account && !error.value }
+    catch (cause) { if (email.value === account) error.value = (cause as Error).message; return false }
     finally { orderingAccount.value = '' }
   }
 

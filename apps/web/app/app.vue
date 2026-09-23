@@ -13,6 +13,7 @@ const showCompletedProjects = ref(false)
 const month = ref(new Date(new Date().getFullYear(), new Date().getMonth(), 1, 12))
 const activeProject = ref('')
 const showAccount = ref(false)
+const showProjectOrder = ref(false)
 const projectEditor = ref<{ project?: Project } | null>(null)
 const entryEditor = ref<{ entry?: Entry; date: string | null; projectId: string } | null>(null)
 const { data, loading, saving, reordering, error, syncedAt, refresh, saveProject, saveEntry, deleteProject, deleteEntry, toggleEntry, reorderProjects } = useAgenda(email)
@@ -33,6 +34,7 @@ function enterAccount(value: string) {
   activeProject.value = ''
   showCompletedProjects.value = false
   showAccount.value = false
+  showProjectOrder.value = false
   try { localStorage.setItem('agenda:email', normalized) } catch { /* Continue without remembering the email. */ }
 }
 
@@ -125,7 +127,7 @@ function followReference(entry: Entry | undefined) {
   <div v-else class="app-shell">
     <aside class="sidebar">
       <a class="brand" href="/" aria-label="日迹首页"><span class="brand-mark"><AppIcon name="spark" :size="24" /></span><span>日迹<span class="brand-en">HOSHINO’S AGENDA</span></span></a>
-      <nav class="project-nav" aria-label="项目筛选"><button class="nav-item all-projects" :class="{ active: !activeProject }" :aria-pressed="!activeProject" @click="activeProject = ''"><AppIcon name="calendar" :size="19" /><span>全部项目</span><span class="count">{{ data.entries.length }}</span></button><div class="nav-heading"><span>我的项目</span><button class="icon-button" aria-label="新建项目" :disabled="loading || saving" @click="projectEditor = {}"><AppIcon name="plus" :size="17" /></button></div><ProjectList :projects="data.projects" :active-project="activeProject" :counts="projectCounts" :busy="loading || saving" @select="activeProject = $event" @overview="activeProject = $event; workspaceView = 'overview'" @edit="projectEditor = { project: $event }" @reorder="reorderProjects" /></nav>
+      <nav class="project-nav" aria-label="项目筛选"><button class="nav-item all-projects" :class="{ active: !activeProject }" :aria-pressed="!activeProject" @click="activeProject = ''"><AppIcon name="calendar" :size="19" /><span>全部项目</span><span class="count">{{ data.entries.length }}</span></button><div class="nav-heading"><span>我的项目</span><div class="project-heading-actions"><button class="icon-button" aria-label="编辑项目排序" title="编辑项目排序" :disabled="loading || saving || data.projects.length < 2" @click="showProjectOrder = true"><AppIcon name="sort" :size="17" /></button><button class="icon-button" aria-label="新建项目" :disabled="loading || saving" @click="projectEditor = {}"><AppIcon name="plus" :size="17" /></button></div></div><ProjectList :projects="data.projects" :active-project="activeProject" :counts="projectCounts" :busy="loading || saving" @select="activeProject = $event" @overview="activeProject = $event; workspaceView = 'overview'" @edit="projectEditor = { project: $event }" @reorder="reorderProjects" /></nav>
       <div v-if="reordering" class="project-order-status" role="status" aria-live="polite"><AppIcon name="refresh" :size="16" class="spinning" /><span><strong>正在调整项目顺序…</strong><small>正在保存并同步，请稍候</small></span></div>
       <div class="sidebar-bottom"><button class="account-button" :disabled="saving" @click="showAccount = true"><span class="avatar">{{ email[0]?.toUpperCase() }}</span><span class="account-label"><strong>我的空间</strong><small>{{ email }}</small></span><AppIcon name="chevronDown" :size="15" /></button></div>
     </aside>
@@ -171,6 +173,7 @@ function followReference(entry: Entry | undefined) {
     </div>
 
     <AppDialog v-if="showAccount" title="回到你的数据空间" @close="showAccount = false"><p class="account-description">输入邮箱，提取对应的项目和日历记录。</p><EmailForm :initial="email" @submit="enterAccount" /></AppDialog>
+    <ProjectOrderEditor v-if="showProjectOrder" :projects="data.projects" :submit="reorderProjects" :error="error" @close="showProjectOrder = false" />
     <ProjectEditor v-if="projectEditor" :project="projectEditor.project" :entry-count="projectEditor.project ? projectCounts.get(projectEditor.project.id) || 0 : 0" :submit="saveProject" :remove="deleteProject" @close="projectEditor = null" />
     <EntryEditor v-if="entryEditor" :key="entryEditor.entry?.id || 'new'" :entry="entryEditor.entry" :date="entryEditor.date" :project-id="entryEditor.projectId" :projects="data.projects" :entries="data.entries" :submit="submitEntry" :remove="deleteEntry" @close="entryEditor = null" />
   </div>

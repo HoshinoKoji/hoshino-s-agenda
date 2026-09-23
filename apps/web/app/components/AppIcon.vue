@@ -17,6 +17,7 @@ const paths: Record<string, string> = {
   refresh: 'M20 7v5h-5M4 17v-5h5M5 8a8 8 0 0 1 13-3l2 3M4 16l2 3a8 8 0 0 0 13-3',
   spark: 'm12 2 2.7 7.3L22 12l-7.3 2.7L12 22l-2.7-7.3L2 12l7.3-2.7z',
   arrow: 'M4 12h16m-6-6 6 6-6 6',
+  sort: 'M4 6h2m3 0h11M4 12h2m3 0h11M4 18h2m3 0h11',
   search: 'M21 21l-5-5M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0',
   clock: 'M12 7v5l3 2M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0',
 }
