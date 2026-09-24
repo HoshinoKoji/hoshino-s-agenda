@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { DESCRIPTION_MAX_LENGTH, type Entry, type Project } from '../../../../shared/types'
 import { MAX_ENTRY_REFERENCES, mentionQueryAt, serializeMention, type MentionQuery } from '../../../../shared/mentions'
+import { dateKey } from '~/utils/dates'
 
 const props = defineProps<{
   modelValue: string
@@ -137,7 +138,7 @@ function keyup(event: KeyboardEvent) {
           type="button" role="option" tabindex="-1" :aria-selected="index === active" class="reference-option"
           :aria-disabled="references.length >= MAX_ENTRY_REFERENCES && !references.includes(candidate.id)"
           @pointerdown.prevent @click="choose(candidate)"
-        ><span class="reference-option-text"><strong>@{{ candidate.title }}</strong><small><i class="project-dot" :style="{ background: projectMap.get(candidate.projectId)?.color }" />{{ projectMap.get(candidate.projectId)?.name }}<span>·</span>{{ candidate.date ?? '未设日期' }}</small></span></button>
+        ><span class="reference-option-text"><strong>@{{ candidate.title }}</strong><small><i class="project-dot" :style="{ background: projectMap.get(candidate.projectId)?.color }" />{{ projectMap.get(candidate.projectId)?.name }}<span>·</span>{{ candidate.date ?? '未设日期' }}<span>·</span>添加于 {{ dateKey(new Date(candidate.createdAt)) }}</small></span></button>
       </div>
       <p v-if="!candidates.length" class="small-empty" role="status">没有找到相关事项，可继续作为纯文本输入。</p>
     </div>

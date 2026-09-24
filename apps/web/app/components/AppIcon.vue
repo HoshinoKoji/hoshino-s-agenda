@@ -8,6 +8,8 @@ const paths: Record<string, string> = {
   chevronRight: 'm10 6 6 6-6 6',
   chevronDown: 'm6 9 6 6 6-6',
   check: 'm5 12 4 4L19 6',
+  circle: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20Z',
+  circleCheck: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20Zm-5-10 3.5 3.5L17 9',
   close: 'm6 6 12 12M6 18 18 6',
   link: 'm10 13 4-4M9 15l-2 2a4 4 0 0 1-6-6l4-4a4 4 0 0 1 6 0m2 2 2-2a4 4 0 0 1 6 6l-4 4a4 4 0 0 1-6 0',
   edit: 'm15 5 4 4M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15z',

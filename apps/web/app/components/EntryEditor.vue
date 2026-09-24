@@ -23,11 +23,17 @@ const form = reactive<Omit<EntryInput, 'references' | 'date'> & { description: s
 })
 const legacy = ref(props.entry ? legacyReferenceIds(props.entry) : [])
 const busy = ref(false)
+const projectOpen = ref(false)
 const error = ref('')
 const confirming = ref(false)
 const entryMap = computed(() => new Map(props.entries.map(entry => [entry.id, entry])))
 const references = computed(() => descriptionReferences(form.description, props.entries, props.entry?.id, legacy.value))
 const incoming = computed(() => props.entries.filter(entry => props.entry && entry.id !== props.entry.id && entry.references.includes(props.entry.id)))
+const projectItems = computed(() => props.projects.map(project => ({ label: project.name, value: project.id })))
+function closeProjectOnEscape(event: KeyboardEvent) {
+  event.preventDefault()
+  projectOpen.value = false
+}
 function updateDescription(value: string) {
   form.description = value
   // Once explicitly inserted into the description, deletion of that marker removes the relation too.
@@ -59,7 +65,23 @@ async function remove() {
     <form @submit.prevent="save">
       <fieldset :disabled="busy" class="form-fields">
         <label class="field">事项标题<input v-model="form.title" required maxlength="200" placeholder="今天，想推进哪件小事？" autofocus></label>
-        <div class="field-row"><label class="field">所属项目<select v-model="form.projectId" required><option v-for="project in projects" :key="project.id" :value="project.id">{{ project.name }}</option></select></label><div class="field"><div class="date-field-heading"><span>记录日期</span><label class="checkbox-label date-option"><input v-model="undated" type="checkbox">不设日期</label></div><span v-if="undated" class="undated-placeholder">未设日期</span><DatePicker v-else v-model="form.date" label="记录日期" :disabled="busy" :portal="false" /></div></div>
+        <div class="field-row">
+          <div class="field">
+            <label for="entry-project">所属项目</label>
+            <USelect
+              id="entry-project" v-model="form.projectId" v-model:open="projectOpen" :items="projectItems"
+              :portal="false" :disabled="busy" required
+              :content="{ align: 'start', sideOffset: 4, collisionPadding: 8, onEscapeKeyDown: closeProjectOnEscape }"
+              :ui="{
+                base: 'w-full min-w-0 min-h-[43px] cursor-pointer rounded-lg border border-[#e5dfed] bg-[#fdfcfe] px-3 text-left text-[#5c5368] focus-visible:border-primary focus-visible:ring-primary',
+                content: 'max-w-[calc(100vw-48px)] rounded-lg bg-white ring-[#eeedf3] shadow-[0_8px_28px_#30273f14]',
+                item: 'cursor-pointer data-highlighted:not-data-disabled:text-primary data-highlighted:not-data-disabled:before:bg-[#fff4f8] data-[state=checked]:text-primary',
+                itemTrailingIcon: 'text-primary',
+              }"
+            />
+          </div>
+          <div class="field"><div class="date-field-heading"><span>记录日期</span><label class="checkbox-label date-option"><input v-model="undated" type="checkbox">不设日期</label></div><span v-if="undated" class="undated-placeholder">未设日期</span><DatePicker v-else v-model="form.date" label="记录日期" :disabled="busy" :portal="false" /></div>
+        </div>
         <EntryDescriptionEditor :model-value="form.description" :entries="entries" :projects="projects" :references="references" :self-id="entry?.id" :disabled="busy" @update:model-value="updateDescription" />
         <section v-if="legacy.length" class="legacy-references">
           <div class="section-label"><span><AppIcon name="link" :size="16" />已有引用</span></div>
@@ -69,7 +91,17 @@ async function remove() {
         <div v-if="incoming.length" class="backlinks-note"><AppIcon name="link" :size="15" /><span>被 {{ incoming.length }} 个事项引用：{{ incoming.map(item => `@${item.title}`).join('、') }}</span></div>
         <div v-if="confirming" class="delete-confirm"><p>确定删除这个事项？其他事项中指向它的引用也会移除。</p><button type="button" class="button danger" @click="remove">确认删除事项</button><button type="button" class="button ghost" @click="confirming = false">取消</button></div>
         <p v-if="error" class="form-error" role="alert">{{ error }}</p>
-        <footer class="form-footer entry-form-footer"><div class="entry-footer-settings"><button v-if="entry && !confirming" type="button" class="icon-button danger-text" aria-label="删除事项" @click="confirming = true"><AppIcon name="trash" /></button><label class="checkbox-label completion-field"><input v-model="form.completed" type="checkbox"><span>已完成</span></label></div><div class="entry-footer-actions"><button v-if="entry && !confirming" type="button" class="button secondary" aria-label="导出已保存事项" @click="emit('export', entry)"><AppIcon name="print" :size="16" />导出</button><button type="button" class="button secondary" @click="emit('close')">取消</button><button class="button primary" type="submit">{{ busy ? '保存中…' : entry ? '保存修改' : '添加事项' }}<AppIcon v-if="!busy" name="check" :size="17" /></button></div></footer>
+        <footer class="form-footer entry-form-footer">
+          <div class="entry-footer-settings" role="group" aria-label="事项操作">
+            <button type="button" class="icon-button completion-field" :aria-label="form.completed ? '标为未完成' : '标为完成'" :title="form.completed ? '已完成 · 点击标为未完成' : '未完成 · 点击标为完成'" :aria-pressed="form.completed" @click="form.completed = !form.completed"><AppIcon :name="form.completed ? 'circleCheck' : 'circle'" :size="20" /></button>
+            <button v-if="entry && !confirming" type="button" class="icon-button" aria-label="导出已保存事项" title="导出已保存事项" @click="emit('export', entry)"><AppIcon name="print" :size="18" /></button>
+            <button v-if="entry && !confirming" type="button" class="icon-button danger-text" aria-label="删除事项" title="删除事项" @click="confirming = true"><AppIcon name="trash" /></button>
+          </div>
+          <div class="entry-footer-actions">
+            <button type="button" class="button ghost" @click="emit('close')">取消</button>
+            <button class="button primary" type="submit">{{ busy ? '保存中…' : entry ? '保存' : '添加事项' }}</button>
+          </div>
+        </footer>
       </fieldset>
     </form>
   </AppDialog>
