@@ -64,6 +64,17 @@ function projectInput(value: Record<string, unknown>): ProjectInput {
   return { name, color: (value.color as string).toUpperCase() }
 }
 
+function entryDate(value: unknown): string | null {
+  const date = value === null ? null : text(value, '日期', 10)
+  if (date !== null) {
+    const parsed = new Date(`${date}T00:00:00.000Z`)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date) {
+      fail(400, '请提供有效的日期，格式为 YYYY-MM-DD，或用 null 表示未设日期')
+    }
+  }
+  return date
+}
+
 function entryInput(value: Record<string, unknown>, id: string): EntryInput & { description: string } {
   const title = text(value.title, '事项标题', 200)
   if (value.description !== undefined && typeof value.description !== 'string') {
@@ -75,13 +86,7 @@ function entryInput(value: Record<string, unknown>, id: string): EntryInput & { 
     fail(400, `事项描述不能超过 ${DESCRIPTION_MAX_LENGTH} 个 UTF-16 单元`)
   }
   const projectId = text(value.projectId, '项目 ID', 64)
-  const date = value.date === null ? null : text(value.date, '日期', 10)
-  if (date !== null) {
-    const parsed = new Date(`${date}T00:00:00.000Z`)
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date) {
-      fail(400, '请提供有效的日期，格式为 YYYY-MM-DD，或用 null 表示未设日期')
-    }
-  }
+  const date = entryDate(value.date)
   if (typeof value.completed !== 'boolean') fail(400, '完成状态必须为布尔值')
   if (!Array.isArray(value.references) || value.references.length > 50 ||
     !value.references.every(ref => typeof ref === 'string' && ref.length > 0 && ref.length <= 64)) {
@@ -202,8 +207,11 @@ async function route(request: Request, env: Env): Promise<Response> {
       await db.delete(entries).where(and(eq(entries.id, id), eq(entries.ownerEmail, email)))
     } else {
       const data = await body(request)
-      if (typeof data.completed !== 'boolean') fail(400, '完成状态必须为布尔值')
-      await db.update(entries).set({ completed: data.completed, updatedAt: new Date().toISOString() })
+      const hasDate = Object.hasOwn(data, 'date')
+      if (hasDate && Object.hasOwn(data, 'completed')) fail(400, '每次只能更新日期或完成状态')
+      if (!hasDate && typeof data.completed !== 'boolean') fail(400, '完成状态必须为布尔值')
+      const changes = hasDate ? { date: entryDate(data.date) } : { completed: data.completed as boolean }
+      await db.update(entries).set({ ...changes, updatedAt: new Date().toISOString() })
         .where(and(eq(entries.id, id), eq(entries.ownerEmail, email)))
     }
     return json({ ok: true })

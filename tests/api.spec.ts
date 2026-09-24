@@ -134,6 +134,25 @@ test('无日期事项往返、补充与清除日期、引用及隔离', async ({
   expect((await space.agenda()).entries).toEqual([expect.objectContaining({ id: target, references: [] })])
 })
 
+test('仅改期 PATCH 保留事项内容与引用并验证日期及邮箱', async ({ space, otherSpace }) => {
+  const project = await space.project('改期项目')
+  const referenced = await space.entry(project.id, '引用目标', '2026-12-31')
+  const id = await space.entry(project.id, '跨年事项', '2026-12-31', [referenced], '**正文**')
+  const original = (await space.agenda()).entries.find(entry => entry.id === id)!
+  for (const date of ['2027-01-01', null, '2026-12-30']) {
+    expect((await space.api.patch(`/api/entries/${id}`, { data: { date } })).status()).toBe(200)
+    expect((await space.agenda()).entries.find(entry => entry.id === id)).toMatchObject({ ...original, date, updatedAt: expect.any(String) })
+  }
+  const before = await space.agenda()
+  for (const date of ['', '2027-02-29', '2026-12-31T00:00:00Z', 1, undefined]) {
+    expect((await space.api.patch(`/api/entries/${id}`, { data: { date } })).status()).toBe(400)
+    expect(await space.agenda()).toEqual(before)
+  }
+  expect((await space.api.patch(`/api/entries/${id}`, { data: { date: '2027-01-02', completed: true } })).status()).toBe(400)
+  expect((await otherSpace.api.patch(`/api/entries/${id}`, { data: { date: '2027-01-02' } })).status()).toBe(404)
+  expect(await space.agenda()).toEqual(before)
+})
+
 test('自定义 RGB 颜色创建、修改、归一化及无效值拒绝', async ({ space }) => {
   const project = await space.project('自定义颜色', '#12abef')
   expect(project.color).toBe('#12ABEF')

@@ -1,4 +1,4 @@
-import type { Page, Request } from '@playwright/test'
+import type { Locator, Page, Request } from '@playwright/test'
 import { test, expect } from './fixtures'
 import { serializeMention } from '../shared/mentions'
 
@@ -19,6 +19,32 @@ async function switchSpace(page: Page, email: string) {
 
 async function noOverflow(page: Page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+}
+
+async function dragCalendarEntry(page: Page, source: Locator, destination: Locator, isMobile: boolean, during?: () => Promise<void>) {
+  await source.scrollIntoViewIfNeeded()
+  await destination.scrollIntoViewIfNeeded()
+  const from = (await source.boundingBox())!
+  const to = (await destination.boundingBox())!
+  const x = from.x + from.width / 2
+  const y = from.y + from.height / 2
+  const endX = to.x + to.width / 2
+  const endY = to.y + to.height / 2
+  if (isMobile) {
+    const session = await page.context().newCDPSession(page)
+    try {
+      await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] })
+      await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: endX, y: endY }] })
+      if (during) await during()
+      await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+    } finally { await session.detach() }
+  } else {
+    await page.mouse.move(x, y)
+    await page.mouse.down()
+    await page.mouse.move(endX, endY, { steps: 8 })
+    if (during) await during()
+    await page.mouse.up()
+  }
 }
 
 async function editSidebarProject(page: Page, name: string) {
@@ -497,6 +523,79 @@ test('周视图七日纵列、跨年导航与桌面悬浮/手机点击详情', a
   await page.screenshot({ path: testInfo.outputPath('week-view.png'), fullPage: true, animations: 'disabled' })
   await page.reload()
   await expect(page.getByRole('button', { name: isMobile ? '周' : '月', exact: true })).toHaveAttribute('aria-pressed', 'true')
+})
+
+test('月周事项标签拖动改期、取消与保存失败', async ({ page, space, isMobile }, testInfo) => {
+  await page.clock.setFixedTime(new Date('2026-12-31T04:00:00Z'))
+  const project = await space.project('改期项目')
+  const reference = await space.entry(project.id, '被引用事项', '2026-12-31')
+  const id = await space.entry(project.id, '拖动的事项', '2026-12-31', [reference], '**原描述**')
+  await space.api.patch(`/api/entries/${id}`, { data: { completed: true } })
+  await space.entry(project.id, '同日第三项', '2026-12-31')
+  await space.entry(project.id, '同日第四项', '2026-12-31')
+  await enter(page, space.email)
+  if (isMobile) await page.getByRole('button', { name: '月', exact: true }).click()
+  const month = page.getByRole('group', { name: '月日历' })
+  const monthSource = month.locator('[data-date="2026-12-31"] .calendar-entry').filter({ hasText: '拖动的事项' })
+  const january = month.locator('[data-date="2027-01-01"]')
+  await expect(monthSource).toBeVisible()
+  if (isMobile) {
+    expect(await page.locator('.calendar-scroll').evaluate(el => el.scrollWidth > el.clientWidth)).toBe(true)
+    await expect.poll(() => month.locator('[data-date="2026-12-31"]').evaluate(day => {
+      const tile = day.getBoundingClientRect()
+      const viewport = day.closest('.calendar-scroll')!.getBoundingClientRect()
+      return tile.left >= viewport.left && tile.right <= viewport.right
+    })).toBe(true)
+    await noOverflow(page)
+  }
+  await monthSource.click()
+  await expect(page.getByRole('dialog', { name: '编辑事项' })).toBeVisible()
+  await page.getByRole('button', { name: '取消', exact: true }).click()
+  await dragCalendarEntry(page, monthSource, january, isMobile, async () => {
+    await expect(january).toHaveClass(/calendar-drop-target/)
+    await expect(monthSource).toHaveClass(/calendar-entry-dragging/)
+    await noOverflow(page)
+    await page.screenshot({ path: testInfo.outputPath('calendar-entry-drag.png') })
+  })
+  await expect(january.locator('.calendar-entry').filter({ hasText: '拖动的事项' })).toBeVisible()
+  await expect(monthSource).toHaveCount(0)
+  await expect(page.getByLabel('本月概览')).toHaveText(/总数\s*3\s*\/\s*未完成\s*3/)
+  await expect(page.getByRole('dialog', { name: '编辑事项' })).toHaveCount(0)
+  expect((await space.agenda()).entries.find(entry => entry.id === id)).toMatchObject({ date: '2027-01-01', completed: true, references: [reference], description: '**原描述**' })
+
+  await page.getByRole('button', { name: '周', exact: true }).click()
+  const week = page.getByRole('group', { name: '周日历' })
+  const weekSource = week.locator('[data-date="2027-01-01"] .week-entry').filter({ hasText: '拖动的事项' })
+  const sunday = week.locator('[data-date="2027-01-03"]')
+  await dragCalendarEntry(page, weekSource, sunday, isMobile, async () => {
+    await expect(sunday).toHaveClass(/calendar-drop-target/)
+  })
+  await expect(sunday.locator('.week-entry').filter({ hasText: '拖动的事项' })).toBeVisible()
+  await expect(weekSource).toHaveCount(0)
+  await expect(page.getByLabel('周视图日期')).toHaveText('2026-12-31')
+  await expect(page.locator('.calendar-tooltip:visible')).toHaveCount(0)
+  await expect(page.getByRole('dialog', { name: '编辑事项' })).toHaveCount(0)
+  await dragCalendarEntry(page, sunday.locator('.week-entry').filter({ hasText: '拖动的事项' }), sunday, isMobile)
+  expect((await space.agenda()).entries.find(entry => entry.id === id)?.date).toBe('2027-01-03')
+  await dragCalendarEntry(page, sunday.locator('.week-entry').filter({ hasText: '拖动的事项' }), page.locator('.month-heading'), isMobile)
+  expect((await space.agenda()).entries.find(entry => entry.id === id)?.date).toBe('2027-01-03')
+
+  await page.route(`**/api/entries/${id}`, route => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: '改期失败，请重试' }) }))
+  await dragCalendarEntry(page, sunday.locator('.week-entry').filter({ hasText: '拖动的事项' }), week.locator('[data-date="2027-01-02"]'), isMobile)
+  await expect(page.getByRole('alert')).toContainText('改期失败，请重试')
+  await expect(sunday.locator('.week-entry').filter({ hasText: '拖动的事项' })).toBeVisible()
+  await page.unroute(`**/api/entries/${id}`)
+  await page.reload()
+  if (!isMobile) await page.getByRole('button', { name: '周', exact: true }).click()
+  await expect(page.getByRole('group', { name: '周日历' }).locator('[data-date="2027-01-03"] .week-entry').filter({ hasText: '拖动的事项' })).toBeVisible()
+  await noOverflow(page)
+  if (isMobile) {
+    await page.getByRole('group', { name: '周日历' }).locator('[data-date="2027-01-03"] .week-entry').filter({ hasText: '拖动的事项' }).click()
+    await expect(page.locator('.calendar-tooltip-title')).toHaveText('拖动的事项')
+  } else {
+    await page.getByRole('group', { name: '周日历' }).locator('[data-date="2027-01-03"] .week-entry').filter({ hasText: '拖动的事项' }).click()
+    await expect(page.getByRole('dialog', { name: '编辑事项' })).toBeVisible()
+  }
 })
 
 test('手机周视图长标题详情保持在可视区域内', async ({ page, space, isMobile }) => {

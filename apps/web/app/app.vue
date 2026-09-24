@@ -17,7 +17,7 @@ const showAccount = ref(false)
 const showProjectOrder = ref(false)
 const projectEditor = ref<{ project?: Project } | null>(null)
 const entryEditor = ref<{ entry?: Entry; date: string | null; projectId: string } | null>(null)
-const { data, loading, saving, reordering, error, syncedAt, refresh, saveProject, saveEntry, deleteProject, deleteEntry, toggleEntry, reorderProjects } = useAgenda(email)
+const { data, loading, saving, reordering, error, syncedAt, refresh, saveProject, saveEntry, deleteProject, deleteEntry, toggleEntry, moveEntry, reorderProjects } = useAgenda(email)
 let clock: ReturnType<typeof setInterval> | undefined
 
 onMounted(() => {
@@ -165,8 +165,8 @@ function followReference(entry: Entry | undefined) {
               <button class="button primary add-main" :disabled="loading || saving" @click="addEntry()"><AppIcon name="plus" :size="18" />事项</button>
             </div>
           </header>
-          <CalendarGrid v-if="view === 'month'" :month="month" :selected="selected" :today="today" :entries="filteredEntries" :all-entries="data.entries" :projects="data.projects" @select="selectDate" @edit="editEntry" @add="addEntry" />
-          <CalendarWeek v-else-if="view === 'week'" :start="weekStart" :selected="selected" :today="today" :entries="filteredEntries" :all-entries="data.entries" :projects="data.projects" @select="selectDate" @edit="editEntry" @add="addEntry" />
+          <CalendarGrid v-if="view === 'month'" :month="month" :selected="selected" :today="today" :entries="filteredEntries" :all-entries="data.entries" :projects="data.projects" :busy="loading || saving" @select="selectDate" @edit="editEntry" @add="addEntry" @move="moveEntry" />
+          <CalendarWeek v-else-if="view === 'week'" :start="weekStart" :selected="selected" :today="today" :entries="filteredEntries" :all-entries="data.entries" :projects="data.projects" :busy="loading || saving" @select="selectDate" @edit="editEntry" @add="addEntry" @move="moveEntry" />
           <footer v-if="view === 'month'" class="calendar-footer"><span><i class="legend-dot" />点击日期查看详情，点击事项进行编辑</span><span>{{ currentProject ? currentProject.name : '全部项目' }}<span class="footer-divider">·</span>周一为一周的开始</span></footer>
         </section>
 
