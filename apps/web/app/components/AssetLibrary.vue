@@ -16,6 +16,8 @@ const deleting = ref('')
 const renaming = ref('')
 const renameName = ref('')
 const selectedId = ref('')
+const openReferences = ref('')
+let followingReference = false
 const selected = computed(() => props.assets.find(asset => asset.id === selectedId.value))
 const projectNames = computed(() => new Map(props.projects.map(project => [project.id, project.name])))
 const references = computed(() => {
@@ -28,6 +30,15 @@ const references = computed(() => {
 const shown = computed(() => props.assets.filter(asset =>
   (kind.value === 'all' || asset.image === (kind.value === 'image')) &&
   asset.name.toLocaleLowerCase().includes(query.value.toLocaleLowerCase())))
+function followReference(entry: Entry) {
+  followingReference = true
+  openReferences.value = ''
+  emit('follow', entry)
+}
+function referenceCloseAutoFocus(event: Event) {
+  if (followingReference) event.preventDefault()
+  followingReference = false
+}
 async function uploadFiles(event: Event) {
   const input = event.target as HTMLInputElement
   const files = Array.from(input.files || [])
@@ -87,8 +98,7 @@ async function download(asset: Asset) {
         <div class="asset-library-info">
           <form v-if="renaming === asset.id" class="asset-rename-form" @submit.prevent="saveName(asset)"><input v-model="renameName" :aria-label="`新素材名称 ${asset.name}`" maxlength="255" required><button type="submit" class="text-button" :disabled="busy || pending">保存</button><button type="button" class="text-button" :disabled="pending" @click="renaming = ''">取消</button></form>
           <strong v-else :title="asset.name">{{ asset.name }}</strong>
-          <small>{{ (asset.size / 1024).toFixed(1) }} KiB · {{ asset.usageCount }} 个事项引用</small>
-          <div v-if="references.get(asset.id)?.length" class="asset-library-refs"><span>引用事项</span><div class="asset-library-ref-list"><button v-for="entry in references.get(asset.id)" :key="entry.id" type="button" class="asset-library-ref" :aria-label="`转到事项 ${entry.title}`" @click="emit('follow', entry)"><span>{{ entry.title }}</span><small>{{ projectNames.get(entry.projectId) }} · {{ entry.date ?? '未设日期' }}</small></button></div></div>
+          <div class="asset-library-meta"><small>{{ (asset.size / 1024).toFixed(1) }} KiB</small><span aria-hidden="true">·</span><UPopover :open="openReferences === asset.id" :disabled="!asset.usageCount" :portal="true" :content="{ align: 'start', sideOffset: 6, collisionPadding: 12, onCloseAutoFocus: referenceCloseAutoFocus }" :ui="{ content: 'asset-reference-popover rounded-lg bg-white ring-[#eeedf3] shadow-[0_8px_28px_#30273f14]' }" @update:open="openReferences = $event ? asset.id : ''"><button type="button" class="asset-reference-trigger" :disabled="!asset.usageCount" :aria-label="`${asset.name} · ${asset.usageCount} 个事项引用`">{{ asset.usageCount }} 个事项引用</button><template #content><div class="asset-reference-heading">{{ asset.name }} · 引用事项</div><div class="asset-library-ref-list"><button v-for="entry in references.get(asset.id) || []" :key="entry.id" type="button" class="asset-library-ref" :aria-label="`转到事项 ${entry.title}`" @click="followReference(entry)"><span>{{ entry.title }}</span><small>{{ projectNames.get(entry.projectId) }} · {{ entry.date ?? '未设日期' }}</small></button></div></template></UPopover></div>
           <div class="asset-library-actions"><button type="button" class="text-button asset-library-download" :disabled="!!downloading" :aria-label="`下载素材 ${asset.name}`" @click="download(asset)">下载</button><button v-if="renaming !== asset.id" type="button" class="icon-button" :aria-label="`重命名素材 ${asset.name}`" :disabled="busy || pending" @click="startRename(asset)"><AppIcon name="edit" :size="16" /></button><button v-if="deleting !== asset.id" type="button" class="icon-button asset-library-delete" :aria-label="`删除素材 ${asset.name}`" :disabled="busy || pending || asset.usageCount > 0" :title="asset.usageCount ? '请先从事项中移除关联' : '删除素材'" @click="deleting = asset.id"><AppIcon name="trash" :size="16" /></button></div>
           <div v-if="deleting === asset.id" class="asset-delete-confirm"><span>确定删除？</span><button type="button" class="text-button danger-text" :disabled="busy || pending" @click="remove(asset)">确认</button><button type="button" class="text-button" @click="deleting = ''">取消</button></div>
         </div>
