@@ -1,6 +1,59 @@
 import { test, expect } from './fixtures'
 import { PROJECT_COLORS } from '../shared/types'
 
+test('R2 素材上传、事项复用、私有下载与被引用时拒绝删除', async ({ space, otherSpace }) => {
+  const project = await space.project('素材项目')
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLttAAAAABJRU5ErkJggg==', 'base64')
+  const upload = (name: string, contentType: string, data: Buffer) => space.api.post('/api/assets', {
+    headers: { 'X-File-Name': encodeURIComponent(name), 'Content-Type': contentType }, data,
+  })
+  const pictureResponse = await upload('小图.png', 'image/png', png)
+  expect(pictureResponse.status()).toBe(201)
+  const picture = await pictureResponse.json()
+  expect(picture).toMatchObject({ name: '小图.png', image: true, size: png.length, usageCount: 0 })
+  const doc = await (await upload('说明.pdf', 'application/pdf', Buffer.from('%PDF-1.7\nhello'))).json()
+  expect(doc).toMatchObject({ contentType: 'application/pdf', image: false })
+  const image = await space.api.get(`/api/assets/${picture.id}/content`)
+  expect(image.headers()['content-type']).toContain('image/png')
+  expect(Buffer.from(await image.body())).toEqual(png)
+  expect((await otherSpace.api.get(`/api/assets/${picture.id}/content`)).status()).toBe(404)
+  expect((await otherSpace.api.delete(`/api/assets/${picture.id}`)).status()).toBe(404)
+  const download = await space.api.get(`/api/assets/${doc.id}/content`)
+  expect(download.headers()['content-type']).toContain('application/octet-stream')
+  expect(download.headers()['content-disposition']).toContain('attachment')
+  const first = await space.entry(project.id, '第一件', null)
+  const second = await space.entry(project.id, '第二件', '2026-09-24')
+  const item = (id: string, assetIds: unknown) => space.api.put(`/api/entries/${id}`, {
+    data: { title: '关联素材', projectId: project.id, date: null, completed: false, references: [], assetIds },
+  })
+  expect((await item(first, [picture.id, doc.id])).ok()).toBe(true)
+  expect((await item(second, [picture.id])).ok()).toBe(true)
+  expect((await space.agenda()).assets.find(asset => asset.id === picture.id)?.usageCount).toBe(2)
+  const before = await space.agenda()
+  expect((await item(first, [picture.id, picture.id])).status()).toBe(200)
+  expect((await item(first, [picture.id, 'missing'])).status()).toBe(400)
+  expect((await otherSpace.api.post('/api/entries', { data: {
+    title: '跨邮箱', projectId: (await otherSpace.project('其他')).id, date: null, completed: false,
+    references: [], assetIds: [picture.id],
+  } })).status()).toBe(400)
+  expect((await space.api.delete(`/api/assets/${picture.id}`)).status()).toBe(409)
+  expect((await space.agenda()).entries.find(entry => entry.id === first)?.assetIds).toEqual([picture.id])
+  expect((await space.api.patch(`/api/entries/${first}`, { data: { completed: true } })).ok()).toBe(true)
+  expect((await space.agenda()).entries.find(entry => entry.id === first)?.assetIds).toEqual([picture.id])
+  expect((await item(first, [])).ok()).toBe(true)
+  expect((await space.api.delete(`/api/entries/${second}`)).ok()).toBe(true)
+  expect((await space.api.delete(`/api/assets/${picture.id}`)).ok()).toBe(true)
+  expect((await space.api.get(`/api/assets/${picture.id}/content`)).status()).toBe(404)
+  expect((await space.agenda()).assets.find(asset => asset.id === picture.id)).toBeUndefined()
+  expect(before.assets).toHaveLength(2)
+  expect((await upload('伪图片.png', 'image/png', Buffer.from('not-a-png'))).status()).toBe(201)
+  const falseImage = (await space.agenda()).assets.find(asset => asset.name === '伪图片.png')!
+  expect(falseImage.image).toBe(false)
+  expect((await space.api.get(`/api/assets/${falseImage.id}/content`)).headers()['content-disposition']).toContain('attachment')
+  expect((await upload('空文件', 'text/plain', Buffer.alloc(0))).status()).toBe(400)
+  expect((await upload('太大.bin', 'application/octet-stream', Buffer.alloc(20 * 1024 * 1024 + 1))).status()).toBe(413)
+})
+
 test('项目排序持久化、追加、编辑保序与无效请求隔离', async ({ space, otherSpace }) => {
   const a = await space.project('甲')
   const b = await space.project('乙')
@@ -187,7 +240,7 @@ test('支持 50 个引用，替换和清空引用时保持事项数据完整', a
     expect((await space.api.put(`/api/entries/${source}`, { data: input })).status()).toBe(200)
     agenda = await space.agenda()
     expect(agenda.entries.find(entry => entry.id === source)).toEqual({
-      id: source, ...input, description: '', createdAt: original.createdAt, updatedAt: expect.any(String),
+      id: source, ...input, assetIds: [], description: '', createdAt: original.createdAt, updatedAt: expect.any(String),
     })
     expect(agenda.entries.filter(entry => entry.id !== source)).toHaveLength(50)
   }

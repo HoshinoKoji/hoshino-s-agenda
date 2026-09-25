@@ -1,8 +1,9 @@
 <script setup lang="ts">
-const model = defineModel<'calendar' | 'overview'>({ required: true })
+const model = defineModel<'calendar' | 'overview' | 'assets'>({ required: true })
 const items = [
   { label: '项目日历', value: 'calendar' },
   { label: '项目总览', value: 'overview' },
+  { label: '素材库', value: 'assets' },
 ]
 </script>
 
@@ -21,7 +22,7 @@ const items = [
     }"
   >
     <template #item-leading="{ item }">
-      <AppIcon :name="item.value === 'calendar' ? 'calendar' : 'grid'" :size="16" class="text-[#98919f] group-data-highlighted:text-primary group-data-[state=checked]:text-primary" />
+      <AppIcon :name="item.value === 'calendar' ? 'calendar' : item.value === 'overview' ? 'grid' : 'file'" :size="16" class="text-[#98919f] group-data-highlighted:text-primary group-data-[state=checked]:text-primary" />
     </template>
   </USelect>
 </template>

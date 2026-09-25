@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { Entry, Project } from '../../../../shared/types'
+import type { Asset, Entry, Project } from '../../../../shared/types'
 import { legacyReferenceIds } from '../../../../shared/mentions'
 import { dateKey } from '~/utils/dates'
 
@@ -8,6 +8,7 @@ const props = defineProps<{
   email: string
   projects: Project[]
   entries: Entry[]
+  assets: Asset[]
   loading: boolean
   error: string
   synced: boolean
@@ -18,7 +19,17 @@ const project = computed(() => props.projects.find(item => item.id === entry.val
 const entryMap = computed(() => new Map(props.entries.map(item => [item.id, item])))
 const legacy = computed(() => entry.value ? legacyReferenceIds(entry.value).map(id => entryMap.value.get(id)?.title ?? '事项已删除') : [])
 const backlinks = computed(() => props.entries.filter(item => item.id !== props.entryId && item.references.includes(props.entryId)))
-function printEntry() { window.print() }
+const attachments = computed(() => (entry.value?.assetIds || []).map(id => props.assets.find(asset => asset.id === id)).filter((asset): asset is Asset => !!asset))
+async function printEntry() {
+  const deadline = Date.now() + 10_000
+  const count = attachments.value.filter(asset => asset.image).length
+  while (document.querySelectorAll('.print-sheet .asset-print-image').length < count && Date.now() < deadline &&
+    document.querySelector('.print-sheet .asset-image-placeholder:not(.failed)')) {
+    await new Promise(resolve => setTimeout(resolve, 80))
+  }
+  await Promise.all(Array.from(document.querySelectorAll<HTMLImageElement>('.print-sheet img')).map(image => image.decode().catch(() => {})))
+  window.print()
+}
 
 useHead({ title: computed(() => entry.value ? `${entry.value.title} · 日迹事项` : '事项打印 · 日迹') })
 </script>
@@ -54,6 +65,7 @@ useHead({ title: computed(() => entry.value ? `${entry.value.title} · 日迹事
         <h2>描述</h2>
         <div class="entry-description"><EntryMarkdown :entry="entry" :entries="entries" :projects="projects" :interactive="false" /></div>
       </section>
+      <section v-if="attachments.length" class="print-section"><h2>附件</h2><AssetAttachments :assets="attachments" :email="email" printable /></section>
       <section v-if="legacy.length" class="print-section">
         <h2>引用</h2><p class="print-references">{{ legacy.map(title => `@${title}`).join('、') }}</p>
       </section>

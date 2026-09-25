@@ -36,6 +36,9 @@ async function withSpace(playwright: PlaywrightWorkerArgs['playwright'], use: (s
       for (const project of (await space.agenda()).projects) {
         expect((await api.delete(`/api/projects/${project.id}`)).ok()).toBeTruthy()
       }
+      for (const asset of (await space.agenda()).assets) {
+        expect((await api.delete(`/api/assets/${asset.id}`)).ok()).toBeTruthy()
+      }
     } finally { await api.dispose() }
   }
 }

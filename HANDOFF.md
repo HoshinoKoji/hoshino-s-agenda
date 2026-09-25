@@ -1,5 +1,24 @@
 # 项目交接
 
+## 本轮：R2 素材库与事项附件（2026-09-25）
+
+已编写：
+
+- Worker 增加私有 R2 `ASSETS` binding（桶名 `hoshinos-agenda-assets`）；新增 `0005_assets.sql`、Drizzle 素材/事项附件/删除待清理表。`GET /api/agenda` 返回素材元数据、引用次数及事项 `assetIds`；二进制上传限 20 MiB、受限的图片类型支持预览，其他文件作为附件下载；下载按邮箱授权，引用中的素材删除返回 409。事项关联在 Drizzle batch 中与事项一并保存，旧客户端 PUT 未传 `assetIds` 时保留现有关联；R2 删除失败记录待清理键，后续上传/删除时重试。
+- 工作台增加「素材库」：上传、名称搜索、图片/文件筛选、预览、下载、查看引用数与删除。事项编辑器支持直接上传或从素材库选择，卡片及打印页展示附件；图片经带邮箱头的同源接口加载为临时 Blob URL，未开放 R2 公共访问。取消事项编辑不会删除已上传的素材。README 更新本地使用、接口、建桶和部署顺序。
+- API 及桌面/手机浏览器回归覆盖上传、类型校验、跨邮箱隔离、复用、引用删除限制、图片预览、下载、打印和手机布局；测试 fixture 清理随机邮箱上传的素材。
+
+已验证：
+
+- `bun run typecheck`、`git diff --check`、`bun run build` 通过；Wrangler dry-run 识别 `DB` 和 `ASSETS` bindings。
+- `CHOKIDAR_USEPOLLING=1 bun run test`：**43 通过、1 桌面专属跳过**（44 项）。之后补充素材库下载验证，专项 `CHOKIDAR_USEPOLLING=1 bun run test --project=api --project=desktop --project=mobile -g 'R2 素材|素材库上传'` **3/3 通过**；打印图片改为立即加载并增加图片解码/PDF 断言后，`CHOKIDAR_USEPOLLING=1 bun run test --project=desktop --project=mobile -g '素材库上传'` **2/2 通过**，再次通过类型检查与差异检查。
+- 已查看桌面/手机 `asset-library.png`，网格、文件元数据、按钮和窄屏单列排布正常；浏览器回归检查无页面横向溢出。
+
+待完成 / 边界：
+
+- 仅本地 Wrangler R2/D1 已验证；远程 `hoshinos-agenda-assets` 桶尚未创建，远程 D1 `0005` 尚未迁移，未执行部署。上线先创建桶，再执行 `bun run db:migrate:remote` 和 `bun run deploy`。本地开发库如已有数据，启动前执行 `bun run db:migrate`。
+- 图片预览仅支持经文件头校验的 PNG/JPEG/GIF/WebP；SVG 等其他类型作为附件下载。删除失败的 R2 对象使用 D1 待清理记录在后续素材上传/删除时重试；上传成功但 D1 写入失败时会尝试删除已上传对象，极端情况下清理失败仅记录 Worker 错误日志。
+
 ## 本轮：事项编辑底栏五项操作重排（2026-09-24）
 
 已编写：

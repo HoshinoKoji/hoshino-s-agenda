@@ -1,7 +1,7 @@
-import type { AgendaData, Entry, EntryInput, ProjectInput } from '../../../../shared/types'
+import type { AgendaData, Asset, Entry, EntryInput, ProjectInput } from '../../../../shared/types'
 
 export function useAgenda(email: Ref<string>) {
-  const data = ref<AgendaData>({ projects: [], entries: [] })
+  const data = ref<AgendaData>({ projects: [], entries: [], assets: [] })
   const loading = ref(false)
   const saving = ref(false)
   const orderingAccount = ref('')
@@ -43,7 +43,7 @@ export function useAgenda(email: Ref<string>) {
 
   watch(email, () => {
     generation++
-    data.value = { projects: [], entries: [] }
+    data.value = { projects: [], entries: [], assets: [] }
     syncedAt.value = null
     loading.value = false
     error.value = ''
@@ -65,6 +65,25 @@ export function useAgenda(email: Ref<string>) {
   const saveEntry = (input: EntryInput, id?: string) => mutate(id ? `/entries/${id}` : '/entries', id ? 'PUT' : 'POST', input)
   const deleteProject = (id: string) => mutate(`/projects/${id}`, 'DELETE')
   const deleteEntry = (id: string) => mutate(`/entries/${id}`, 'DELETE')
+  const deleteAsset = (id: string) => mutate(`/assets/${id}`, 'DELETE')
+
+  async function uploadAsset(file: File): Promise<Asset> {
+    if (saving.value) throw new Error('正在保存，请稍候')
+    if (!file.size || file.size > 20 * 1024 * 1024) throw new Error('文件大小需在 1 字节至 20 MiB 之间')
+    saving.value = true
+    error.value = ''
+    const account = email.value
+    try {
+      const response = await fetch('/api/assets', {
+        method: 'POST', headers: { 'X-User-Email': account, 'X-File-Name': encodeURIComponent(file.name),
+          'Content-Type': file.type || 'application/octet-stream' }, body: file,
+      })
+      const result = await response.json() as Asset & { error?: string }
+      if (!response.ok) throw new Error(result.error || '上传失败，请重试')
+      if (email.value === account) await refresh()
+      return result
+    } finally { saving.value = false }
+  }
 
   async function toggleEntry(entry: Entry) {
     try { await mutate(`/entries/${entry.id}`, 'PATCH', { completed: !entry.completed }) }
@@ -88,5 +107,5 @@ export function useAgenda(email: Ref<string>) {
     finally { orderingAccount.value = '' }
   }
 
-  return { data, loading, saving, reordering, error, syncedAt, refresh, saveProject, saveEntry, deleteProject, deleteEntry, toggleEntry, moveEntry, reorderProjects }
+  return { data, loading, saving, reordering, error, syncedAt, refresh, saveProject, saveEntry, deleteProject, deleteEntry, deleteAsset, uploadAsset, toggleEntry, moveEntry, reorderProjects }
 }

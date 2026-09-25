@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import type { Entry, Project } from '../../../../shared/types'
+import type { Asset, Entry, Project } from '../../../../shared/types'
 import { legacyReferenceIds } from '../../../../shared/mentions'
 import { dateKey } from '~/utils/dates'
 
-const props = defineProps<{ entries: Entry[]; allEntries: Entry[]; projects: Project[]; busy: boolean; showDate?: boolean }>()
+const props = defineProps<{ entries: Entry[]; allEntries: Entry[]; projects: Project[]; assets: Asset[]; email: string; busy: boolean; showDate?: boolean }>()
 const emit = defineEmits<{ edit: [entry: Entry]; export: [entry: Entry]; toggle: [entry: Entry]; follow: [entry: Entry | undefined] }>()
 const projectMap = computed(() => new Map(props.projects.map(project => [project.id, project])))
 const entryMap = computed(() => new Map(props.allEntries.map(entry => [entry.id, entry])))
+const assetMap = computed(() => new Map(props.assets.map(asset => [asset.id, asset])))
 const legacyReferences = computed(() => new Map(props.entries.map(entry => [entry.id, legacyReferenceIds(entry)])))
 const backlinks = computed(() => {
   const map = new Map<string, Entry[]>()
@@ -25,6 +26,7 @@ const backlinks = computed(() => {
         <button class="entry-title" :disabled="busy" @click="emit('edit', entry)">{{ entry.title }}</button>
         <div class="entry-meta"><span class="project-tag" :style="{ '--project-color': projectMap.get(entry.projectId)?.color }"><i class="project-dot" />{{ projectMap.get(entry.projectId)?.name }}</span><span v-if="showDate" class="entry-state">{{ entry.date ?? '未设日期' }}</span><time class="entry-state entry-created" :datetime="entry.createdAt">添加于 {{ dateKey(new Date(entry.createdAt)) }}</time><span class="entry-state">{{ entry.completed ? '已完成' : '进行中' }}</span></div>
         <EntryDescription :entry="entry" :entries="allEntries" :projects="projects" collapsible @follow="emit('follow', $event)" />
+        <AssetAttachments :assets="entry.assetIds.map(id => assetMap.get(id)).filter((asset): asset is Asset => !!asset)" :email="email" />
         <div v-if="legacyReferences.get(entry.id)?.length || backlinks.get(entry.id)?.length" class="entry-links">
           <div v-if="legacyReferences.get(entry.id)?.length" class="reference-group"><span><AppIcon name="link" :size="12" />引用</span><template v-for="id in legacyReferences.get(entry.id)" :key="id"><EntryTooltip v-if="entryMap.has(id)" :entry="entryMap.get(id)!" :entries="allEntries" :projects="projects"><button class="reference-chip" @click="emit('follow', entryMap.get(id))">@{{ entryMap.get(id)?.title }}<AppIcon name="arrow" :size="12" /></button></EntryTooltip><span v-else class="reference-chip">@事项已删除</span></template></div>
           <div v-if="backlinks.get(entry.id)?.length" class="reference-group"><span><AppIcon name="link" :size="12" />被引用</span><EntryTooltip v-for="source in backlinks.get(entry.id)" :key="source.id" :entry="source" :entries="allEntries" :projects="projects"><button class="reference-chip backlink" @click="emit('follow', source)">@{{ source.title }}<AppIcon name="arrow" :size="12" /></button></EntryTooltip></div>

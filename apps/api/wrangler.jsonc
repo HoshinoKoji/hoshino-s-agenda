@@ -20,5 +20,8 @@
       "database_id": "b00e9432-2cd1-4455-b485-c783d3082dbd",
       "migrations_dir": "migrations"
     }
+  ],
+  "r2_buckets": [
+    { "binding": "ASSETS", "bucket_name": "hoshinos-agenda-assets" }
   ]
 }

@@ -19,6 +19,7 @@ export interface Entry {
   description: string
   completed: boolean
   references: string[]
+  assetIds: string[]
   createdAt: string
   updatedAt: string
 }
@@ -26,6 +27,17 @@ export interface Entry {
 export interface AgendaData {
   projects: Project[]
   entries: Entry[]
+  assets: Asset[]
+}
+
+export interface Asset {
+  id: string
+  name: string
+  contentType: string
+  size: number
+  image: boolean
+  createdAt: string
+  usageCount: number
 }
 
 export interface ProjectInput {
@@ -41,4 +53,5 @@ export interface EntryInput {
   description?: string
   completed: boolean
   references: string[]
+  assetIds?: string[]
 }

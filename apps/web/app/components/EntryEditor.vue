@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { DESCRIPTION_MAX_LENGTH, type Entry, type EntryInput, type Project } from '../../../../shared/types'
+import { DESCRIPTION_MAX_LENGTH, type Asset, type Entry, type EntryInput, type Project } from '../../../../shared/types'
 import { descriptionReferences, legacyReferenceIds, MAX_ENTRY_REFERENCES, mentionIds } from '../../../../shared/mentions'
 import { dateKey } from '~/utils/dates'
 const props = defineProps<{
@@ -8,6 +8,9 @@ const props = defineProps<{
   projectId: string
   projects: Project[]
   entries: Entry[]
+  assets: Asset[]
+  email: string
+  upload: (file: File) => Promise<Asset>
   submit: (data: EntryInput, id?: string) => Promise<void>
   remove: (id: string) => Promise<void>
 }>()
@@ -23,6 +26,12 @@ const form = reactive<Omit<EntryInput, 'references' | 'date'> & { description: s
 })
 const legacy = ref(props.entry ? legacyReferenceIds(props.entry) : [])
 const busy = ref(false)
+const uploading = ref(false)
+const assetIds = ref<string[]>([...(props.entry?.assetIds || [])])
+const assetQuery = ref('')
+const assetPicker = ref(false)
+const selectedAssets = computed(() => assetIds.value.map(id => props.assets.find(asset => asset.id === id)).filter((asset): asset is Asset => !!asset))
+const availableAssets = computed(() => props.assets.filter(asset => !assetIds.value.includes(asset.id) && asset.name.toLocaleLowerCase().includes(assetQuery.value.toLocaleLowerCase())))
 const projectOpen = ref(false)
 const error = ref('')
 const confirming = ref(false)
@@ -41,14 +50,30 @@ function updateDescription(value: string) {
   legacy.value = legacy.value.filter(id => !inline.has(id))
 }
 async function save() {
-  if (busy.value) return
+  if (busy.value || uploading.value) return
   if (form.description.length > DESCRIPTION_MAX_LENGTH) { error.value = `描述不能超过 ${DESCRIPTION_MAX_LENGTH} 字符。`; return }
   if (references.value.length > MAX_ENTRY_REFERENCES) { error.value = '最多引用 50 个不同事项，请移除多余引用后保存。'; return }
   busy.value = true
   error.value = ''
-  try { await props.submit({ ...form, date: undated.value ? null : form.date, references: [...references.value] }, props.entry?.id); emit('close') }
+  try { await props.submit({ ...form, date: undated.value ? null : form.date, references: [...references.value], assetIds: [...assetIds.value] }, props.entry?.id); emit('close') }
   catch (cause) { error.value = (cause as Error).message }
   finally { busy.value = false }
+}
+async function uploadFiles(event: Event) {
+  const input = event.target as HTMLInputElement
+  const files = Array.from(input.files || [])
+  input.value = ''
+  if (!files.length) return
+  uploading.value = true
+  error.value = ''
+  try {
+    for (const file of files) {
+      if (assetIds.value.length >= 50) throw new Error('每个事项最多关联 50 个素材')
+      const asset = await props.upload(file)
+      assetIds.value.push(asset.id)
+    }
+  } catch (cause) { error.value = (cause as Error).message }
+  finally { uploading.value = false }
 }
 async function remove() {
   if (!props.entry) return
@@ -61,9 +86,9 @@ async function remove() {
 </script>
 
 <template>
-  <AppDialog :title="entry ? '编辑事项' : '添加事项'" :busy="busy" wide @close="emit('close')">
+  <AppDialog :title="entry ? '编辑事项' : '添加事项'" :busy="busy || uploading" wide @close="emit('close')">
     <form @submit.prevent="save">
-      <fieldset :disabled="busy" class="form-fields">
+      <fieldset :disabled="busy || uploading" class="form-fields">
         <label class="field">事项标题<input v-model="form.title" required maxlength="200" placeholder="今天，想推进哪件小事？" autofocus></label>
         <div class="field-row">
           <div class="field">
@@ -83,6 +108,13 @@ async function remove() {
           <div class="field"><div class="date-field-heading"><span>记录日期</span><label class="checkbox-label date-option"><input v-model="undated" type="checkbox">不设日期</label></div><span v-if="undated" class="undated-placeholder">未设日期</span><DatePicker v-else v-model="form.date" label="记录日期" :disabled="busy" :portal="false" /></div>
         </div>
         <EntryDescriptionEditor :model-value="form.description" :entries="entries" :projects="projects" :references="references" :self-id="entry?.id" :disabled="busy" @update:model-value="updateDescription" />
+        <section class="entry-assets-section" aria-label="事项附件">
+          <div class="section-label"><span><AppIcon name="file" :size="16" />附件 · {{ assetIds.length }} / 50</span></div>
+          <div v-if="selectedAssets.length" class="entry-asset-chips"><div v-for="asset in selectedAssets" :key="asset.id" class="entry-asset-chip"><AssetImage v-if="asset.image" :asset="asset" :email="email" /><AppIcon v-else name="file" :size="18" /><span>{{ asset.name }}</span><button type="button" class="icon-button" :aria-label="`移除附件 ${asset.name}`" @click="assetIds = assetIds.filter(id => id !== asset.id)"><AppIcon name="close" :size="14" /></button></div></div>
+          <div class="entry-asset-actions"><label class="button secondary asset-upload-button"><AppIcon name="plus" :size="15" />上传并添加<input type="file" multiple aria-label="上传事项附件" :disabled="assetIds.length >= 50" @change="uploadFiles"></label><button type="button" class="button secondary" :aria-expanded="assetPicker" @click="assetPicker = !assetPicker">{{ assetPicker ? '收起素材库' : '从素材库选择' }}</button></div>
+          <div v-if="assetPicker" class="entry-asset-picker"><input v-model="assetQuery" type="search" aria-label="搜索可引用素材" placeholder="搜索素材名称"><div class="entry-asset-options"><button v-for="asset in availableAssets" :key="asset.id" type="button" :disabled="assetIds.length >= 50" @click="assetIds.push(asset.id)"><AppIcon :name="asset.image ? 'grid' : 'file'" :size="16" /><span>{{ asset.name }}</span></button><p v-if="!availableAssets.length" class="small-empty">暂无可选素材</p></div></div>
+          <p class="field-help">上传后的文件保存在素材库；取消编辑不会删除已上传的素材。</p>
+        </section>
         <section v-if="legacy.length" class="legacy-references">
           <div class="section-label"><span><AppIcon name="link" :size="16" />已有引用</span></div>
           <p class="field-help">这些引用尚未写入描述，可单独移除。</p>
@@ -99,7 +131,7 @@ async function remove() {
           </div>
           <div class="entry-footer-actions">
             <button type="button" class="button ghost" @click="emit('close')">取消</button>
-            <button class="button primary" type="submit">{{ busy ? '保存中…' : entry ? '保存' : '添加事项' }}</button>
+            <button class="button primary" type="submit">{{ busy ? '保存中…' : uploading ? '上传中…' : entry ? '保存' : '添加事项' }}</button>
           </div>
         </footer>
       </fieldset>

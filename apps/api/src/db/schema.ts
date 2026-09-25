@@ -50,3 +50,30 @@ export const entryReferences = sqliteTable('entry_references', {
   index('references_owner').on(table.ownerEmail),
   index('references_target').on(table.targetId),
 ])
+
+export const assets = sqliteTable('assets', {
+  id: text('id').primaryKey(),
+  ownerEmail: text('owner_email').notNull().references(() => accounts.email, { onDelete: 'cascade' }),
+  objectKey: text('object_key').notNull().unique(),
+  name: text('name').notNull(),
+  contentType: text('content_type').notNull(),
+  size: integer('size').notNull(),
+  image: integer('image', { mode: 'boolean' }).notNull().default(false),
+  createdAt: text('created_at').notNull(),
+}, table => [unique().on(table.id, table.ownerEmail), index('assets_owner_created').on(table.ownerEmail, table.createdAt)])
+
+export const entryAssets = sqliteTable('entry_assets', {
+  entryId: text('entry_id').notNull(),
+  assetId: text('asset_id').notNull(),
+  ownerEmail: text('owner_email').notNull(),
+}, table => [
+  primaryKey({ columns: [table.entryId, table.assetId] }),
+  foreignKey({ columns: [table.entryId, table.ownerEmail], foreignColumns: [entries.id, entries.ownerEmail] }).onDelete('cascade'),
+  foreignKey({ columns: [table.assetId, table.ownerEmail], foreignColumns: [assets.id, assets.ownerEmail] }).onDelete('restrict'),
+  index('entry_assets_owner').on(table.ownerEmail),
+  index('entry_assets_asset').on(table.assetId),
+])
+
+export const assetDeletions = sqliteTable('asset_deletions', {
+  objectKey: text('object_key').primaryKey(),
+})
