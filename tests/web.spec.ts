@@ -129,6 +129,46 @@ test('素材库上传、事项引用与上传附件、图片预览和打印', as
   if (isMobile) await noOverflow(page)
 })
 
+test('素材卡片操作始终贴近底部', async ({ page, space, isMobile }, testInfo) => {
+  const longName = `${'很长的素材文件名称'.repeat(10)}.txt`
+  for (const name of ['短文件.txt', longName]) {
+    expect((await space.api.post('/api/assets', {
+      headers: { 'X-File-Name': encodeURIComponent(name), 'Content-Type': 'text/plain' },
+      data: Buffer.from('asset'),
+    })).status()).toBe(201)
+  }
+  await enter(page, space.email)
+  await page.getByRole('combobox', { name: '工作台视图' }).click()
+  await page.getByRole('option', { name: '素材库', exact: true }).click()
+  const shortCard = page.locator('.asset-library-card').filter({ hasText: '短文件.txt' })
+  const longCard = page.locator('.asset-library-card').filter({ hasText: longName })
+  await expect(longCard).toBeVisible()
+
+  async function expectBottomActions() {
+    for (const card of [shortCard, longCard]) {
+      const cardBox = (await card.boundingBox())!
+      const actionsBox = (await card.locator('.asset-library-actions').boundingBox())!
+      expect(cardBox.y + cardBox.height - actionsBox.y - actionsBox.height).toBeGreaterThanOrEqual(0)
+      expect(cardBox.y + cardBox.height - actionsBox.y - actionsBox.height).toBeLessThan(18)
+    }
+    if (!isMobile && !(await page.locator('.asset-library-grid').getAttribute('class'))?.includes('asset-library-list')) {
+      const first = (await shortCard.locator('.asset-library-actions').boundingBox())!
+      const second = (await longCard.locator('.asset-library-actions').boundingBox())!
+      expect(Math.abs(first.y - second.y)).toBeLessThan(2)
+    }
+    await noOverflow(page)
+  }
+
+  await expectBottomActions()
+  await page.screenshot({ path: testInfo.outputPath('asset-actions-grid.png'), animations: 'disabled' })
+  await shortCard.getByRole('button', { name: '删除素材 短文件.txt' }).click()
+  await expectBottomActions()
+  await shortCard.getByRole('button', { name: '取消', exact: true }).click()
+  await page.getByRole('button', { name: '列表视图' }).click()
+  await expectBottomActions()
+  await page.screenshot({ path: testInfo.outputPath('asset-actions-list.png'), animations: 'disabled' })
+})
+
 async function enter(page: Page, email: string) {
   await page.goto('/')
   await page.getByRole('textbox', { name: '邮箱地址' }).fill(email)
