@@ -6,11 +6,20 @@ import { accounts, assetDeletions, assets, entries, entryAssets, entryReferences
 interface Env {
   DB: D1Database
   ASSETS: R2Bucket
+  IMAGES: ImagesBinding
   ALLOWED_ORIGINS: string
 }
 
 const MAX_ASSET_SIZE = 20 * 1024 * 1024
 const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
+const thumbnailKey = (objectKey: string) => `${objectKey}/thumbnail.webp`
+
+function assetName(value: unknown) {
+  if (typeof value !== 'string') fail(400, '文件名无效')
+  const name = value.trim()
+  if (!name || name.length > 255 || /[\x00-\x1f\x7f/\\]/.test(name)) fail(400, '文件名无效')
+  return name
+}
 
 function isImage(bytes: Uint8Array, type: string) {
   if (type === 'image/png') return bytes.length >= 8 && [137, 80, 78, 71, 13, 10, 26, 10].every((byte, i) => bytes[i] === byte)
@@ -24,7 +33,7 @@ async function assetBody(request: Request) {
   const rawName = request.headers.get('X-File-Name')
   let name: string
   try { name = decodeURIComponent(rawName || '').trim() } catch { return fail(400, '文件名无效') }
-  if (!name || name.length > 255 || /[\x00-\x1f\x7f/\\]/.test(name)) fail(400, '文件名无效')
+  name = assetName(name)
   const reader = request.body?.getReader()
   if (!reader) fail(400, '文件不能为空')
   const chunks: Uint8Array[] = []
@@ -43,6 +52,8 @@ async function assetBody(request: Request) {
   const suppliedType = request.headers.get('Content-Type')?.split(';')[0]?.trim().toLowerCase() || 'application/octet-stream'
   if (!/^[\w.+-]+\/[\w.+-]+$/.test(suppliedType)) fail(400, '文件类型无效')
   const image = IMAGE_TYPES.has(suppliedType) && isImage(bytes, suppliedType)
+  // The Images binding accepts at most 20 MB of input, while ordinary files may use the full 20 MiB upload limit.
+  if (image && size > 20_000_000) fail(413, '可预览图片不能超过 20 MB')
   // Unverified image types and active content are downloaded, never rendered inline.
   const contentType = !image && IMAGE_TYPES.has(suppliedType) ? 'application/octet-stream' : suppliedType
   return { name, bytes, size, contentType, image }
@@ -222,6 +233,34 @@ async function route(request: Request, env: Env): Promise<Response> {
 
   const assetMatch = path.match(/^\/api\/assets\/([\w-]+)$/)
   const assetContentMatch = path.match(/^\/api\/assets\/([\w-]+)\/content$/)
+  const assetThumbnailMatch = path.match(/^\/api\/assets\/([\w-]+)\/thumbnail$/)
+  if (assetThumbnailMatch && method === 'GET') {
+    const row = await db.select({ objectKey: assets.objectKey, image: assets.image }).from(assets)
+      .where(and(eq(assets.id, assetThumbnailMatch[1]), eq(assets.ownerEmail, email))).get()
+    if (!row || !row.image) fail(404, '图片不存在')
+    const key = thumbnailKey(row.objectKey)
+    let thumbnail = await env.ASSETS.get(key)
+    if (!thumbnail) {
+      const original = await env.ASSETS.get(row.objectKey)
+      if (!original) fail(404, '素材文件不存在')
+      let bytes: ArrayBuffer
+      try {
+        const transformed = await env.IMAGES.input(original.body)
+          .transform({ width: 320, height: 320, fit: 'contain' })
+          .output({ format: 'image/webp', quality: 75, anim: false })
+        bytes = await transformed.response().arrayBuffer()
+      } catch (cause) {
+        console.error('Thumbnail generation failed', cause)
+        fail(422, '无法生成图片缩略图')
+      }
+      await env.ASSETS.put(key, bytes, { httpMetadata: { contentType: 'image/webp' } })
+      thumbnail = await env.ASSETS.get(key)
+    }
+    if (!thumbnail) fail(500, '缩略图暂不可用')
+    return new Response(thumbnail.body, { headers: {
+      'Content-Type': 'image/webp', 'X-Content-Type-Options': 'nosniff',
+    } })
+  }
   if (assetContentMatch && method === 'GET') {
     const row = await db.select().from(assets)
       .where(and(eq(assets.id, assetContentMatch[1]), eq(assets.ownerEmail, email))).get()
@@ -236,6 +275,16 @@ async function route(request: Request, env: Env): Promise<Response> {
     })
     return new Response(object.body, { headers })
   }
+  if (assetMatch && method === 'PATCH') {
+    const id = assetMatch[1]
+    const data = await body(request)
+    const name = assetName(data.name)
+    const row = await db.select({ id: assets.id }).from(assets)
+      .where(and(eq(assets.id, id), eq(assets.ownerEmail, email))).get()
+    if (!row) fail(404, '素材不存在')
+    await db.update(assets).set({ name }).where(and(eq(assets.id, id), eq(assets.ownerEmail, email)))
+    return json({ ok: true })
+  }
   if (assetMatch && method === 'DELETE') {
     const id = assetMatch[1]
     const row = await db.select({ objectKey: assets.objectKey }).from(assets)
@@ -247,6 +296,7 @@ async function route(request: Request, env: Env): Promise<Response> {
     try {
       await db.batch([
         db.insert(assetDeletions).values({ objectKey: row.objectKey }),
+        db.insert(assetDeletions).values({ objectKey: thumbnailKey(row.objectKey) }),
         db.delete(assets).where(and(eq(assets.id, id), eq(assets.ownerEmail, email))),
       ])
     } catch { fail(409, '素材仍被事项引用，请先移除关联') }

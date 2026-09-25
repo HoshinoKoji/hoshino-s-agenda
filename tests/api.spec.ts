@@ -1,9 +1,10 @@
 import { test, expect } from './fixtures'
 import { PROJECT_COLORS } from '../shared/types'
+import { samplePng } from './image'
 
 test('R2 素材上传、事项复用、私有下载与被引用时拒绝删除', async ({ space, otherSpace }) => {
   const project = await space.project('素材项目')
-  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLttAAAAABJRU5ErkJggg==', 'base64')
+  const png = samplePng()
   const upload = (name: string, contentType: string, data: Buffer) => space.api.post('/api/assets', {
     headers: { 'X-File-Name': encodeURIComponent(name), 'Content-Type': contentType }, data,
   })
@@ -16,11 +17,28 @@ test('R2 素材上传、事项复用、私有下载与被引用时拒绝删除',
   const image = await space.api.get(`/api/assets/${picture.id}/content`)
   expect(image.headers()['content-type']).toContain('image/png')
   expect(Buffer.from(await image.body())).toEqual(png)
+  const thumbnail = await space.api.get(`/api/assets/${picture.id}/thumbnail`)
+  expect(thumbnail.status()).toBe(200)
+  expect(thumbnail.headers()['content-type']).toContain('image/webp')
+  const thumbBytes = Buffer.from(await thumbnail.body())
+  expect(thumbBytes.subarray(0, 4).toString()).toBe('RIFF')
+  expect(thumbBytes.length).toBeLessThan(png.length)
+  expect(Buffer.from(await (await space.api.get(`/api/assets/${picture.id}/thumbnail`)).body())).toEqual(thumbBytes)
+  expect((await otherSpace.api.get(`/api/assets/${picture.id}/thumbnail`)).status()).toBe(404)
   expect((await otherSpace.api.get(`/api/assets/${picture.id}/content`)).status()).toBe(404)
   expect((await otherSpace.api.delete(`/api/assets/${picture.id}`)).status()).toBe(404)
   const download = await space.api.get(`/api/assets/${doc.id}/content`)
   expect(download.headers()['content-type']).toContain('application/octet-stream')
   expect(download.headers()['content-disposition']).toContain('attachment')
+  expect((await space.api.get(`/api/assets/${doc.id}/thumbnail`)).status()).toBe(404)
+  expect((await otherSpace.api.patch(`/api/assets/${picture.id}`, { data: { name: '越权.png' } })).status()).toBe(404)
+  for (const name of ['', '  ', '../bad.png', 'bad\\name.png', 'x'.repeat(256), null, 1]) {
+    expect((await space.api.patch(`/api/assets/${picture.id}`, { data: { name } })).status()).toBe(400)
+  }
+  expect((await space.api.patch(`/api/assets/${picture.id}`, { data: { name: '  新图.png  ' } })).status()).toBe(200)
+  expect((await space.agenda()).assets.find(asset => asset.id === picture.id)?.name).toBe('新图.png')
+  expect((await space.api.get(`/api/assets/${picture.id}/content`)).headers()['content-disposition']).toContain(encodeURIComponent('新图.png'))
+  expect(Buffer.from(await (await space.api.get(`/api/assets/${picture.id}/content`)).body())).toEqual(png)
   const first = await space.entry(project.id, '第一件', null)
   const second = await space.entry(project.id, '第二件', '2026-09-24')
   const item = (id: string, assetIds: unknown) => space.api.put(`/api/entries/${id}`, {
@@ -44,13 +62,18 @@ test('R2 素材上传、事项复用、私有下载与被引用时拒绝删除',
   expect((await space.api.delete(`/api/entries/${second}`)).ok()).toBe(true)
   expect((await space.api.delete(`/api/assets/${picture.id}`)).ok()).toBe(true)
   expect((await space.api.get(`/api/assets/${picture.id}/content`)).status()).toBe(404)
+  expect((await space.api.get(`/api/assets/${picture.id}/thumbnail`)).status()).toBe(404)
   expect((await space.agenda()).assets.find(asset => asset.id === picture.id)).toBeUndefined()
   expect(before.assets).toHaveLength(2)
   expect((await upload('伪图片.png', 'image/png', Buffer.from('not-a-png'))).status()).toBe(201)
   const falseImage = (await space.agenda()).assets.find(asset => asset.name === '伪图片.png')!
   expect(falseImage.image).toBe(false)
   expect((await space.api.get(`/api/assets/${falseImage.id}/content`)).headers()['content-disposition']).toContain('attachment')
+  const broken = await (await upload('损坏.png', 'image/png', Buffer.concat([png.subarray(0, 8), Buffer.from('invalid')]))).json()
+  expect(broken.image).toBe(true)
+  expect((await space.api.get(`/api/assets/${broken.id}/thumbnail`)).status()).toBe(422)
   expect((await upload('空文件', 'text/plain', Buffer.alloc(0))).status()).toBe(400)
+  expect((await upload('大图.png', 'image/png', Buffer.concat([png.subarray(0, 8), Buffer.alloc(20_000_000 - 7)]))).status()).toBe(413)
   expect((await upload('太大.bin', 'application/octet-stream', Buffer.alloc(20 * 1024 * 1024 + 1))).status()).toBe(413)
 })
 

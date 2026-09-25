@@ -17,7 +17,7 @@ const showAccount = ref(false)
 const showProjectOrder = ref(false)
 const projectEditor = ref<{ project?: Project } | null>(null)
 const entryEditor = ref<{ entry?: Entry; date: string | null; projectId: string } | null>(null)
-const { data, loading, saving, reordering, error, syncedAt, refresh, saveProject, saveEntry, deleteProject, deleteEntry, deleteAsset, uploadAsset, toggleEntry, moveEntry, reorderProjects } = useAgenda(email)
+const { data, loading, saving, reordering, error, syncedAt, refresh, saveProject, saveEntry, deleteProject, deleteEntry, deleteAsset, renameAsset, uploadAsset, toggleEntry, moveEntry, reorderProjects } = useAgenda(email)
 let clock: ReturnType<typeof setInterval> | undefined
 
 onMounted(() => {
@@ -144,7 +144,7 @@ function followReference(entry: Entry | undefined) {
       <main class="workspace" :class="{ 'day-view': workspaceView === 'calendar' && view === 'day' }">
         <div v-if="error" class="error-banner" role="alert"><span>{{ error }}</span><button class="text-button" :disabled="loading || saving" @click="refresh">重试</button></div>
 
-        <AssetLibrary v-if="workspaceView === 'assets'" :assets="data.assets" :email="email" :loading="loading" :busy="loading || saving" :upload="uploadAsset" :remove="deleteAsset" />
+        <AssetLibrary v-if="workspaceView === 'assets'" :assets="data.assets" :entries="data.entries" :projects="data.projects" :email="email" :loading="loading" :busy="loading || saving" :upload="uploadAsset" :remove="deleteAsset" :rename="renameAsset" @follow="followReference" />
         <ProjectOverview v-else-if="workspaceView === 'overview'" v-model:show-completed="showCompletedProjects" :projects="data.projects" :entries="data.entries" :assets="data.assets" :email="email" :active-project="activeProject" :busy="loading || saving" :loading="loading" @add="addEntry(null, $event)" @create-project="projectEditor = {}" @edit-project="projectEditor = { project: $event }" @edit="editEntry" @export="exportEntry" @toggle="toggleEntry" @follow="followReference" />
         <template v-else>
         <section class="calendar-card" :aria-busy="loading">

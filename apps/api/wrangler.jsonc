@@ -23,5 +23,6 @@
   ],
   "r2_buckets": [
     { "binding": "ASSETS", "bucket_name": "hoshinos-agenda-assets" }
-  ]
+  ],
+  "images": { "binding": "IMAGES" }
 }

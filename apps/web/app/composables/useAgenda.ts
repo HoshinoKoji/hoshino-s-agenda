@@ -66,6 +66,7 @@ export function useAgenda(email: Ref<string>) {
   const deleteProject = (id: string) => mutate(`/projects/${id}`, 'DELETE')
   const deleteEntry = (id: string) => mutate(`/entries/${id}`, 'DELETE')
   const deleteAsset = (id: string) => mutate(`/assets/${id}`, 'DELETE')
+  const renameAsset = (id: string, name: string) => mutate(`/assets/${id}`, 'PATCH', { name })
 
   async function uploadAsset(file: File): Promise<Asset> {
     if (saving.value) throw new Error('正在保存，请稍候')
@@ -107,5 +108,5 @@ export function useAgenda(email: Ref<string>) {
     finally { orderingAccount.value = '' }
   }
 
-  return { data, loading, saving, reordering, error, syncedAt, refresh, saveProject, saveEntry, deleteProject, deleteEntry, deleteAsset, uploadAsset, toggleEntry, moveEntry, reorderProjects }
+  return { data, loading, saving, reordering, error, syncedAt, refresh, saveProject, saveEntry, deleteProject, deleteEntry, deleteAsset, renameAsset, uploadAsset, toggleEntry, moveEntry, reorderProjects }
 }

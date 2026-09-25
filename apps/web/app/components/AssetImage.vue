@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import type { Asset } from '../../../../shared/types'
 
-const props = defineProps<{ asset: Asset; email: string; eager?: boolean }>()
+const props = defineProps<{ asset: Asset; email: string; eager?: boolean; original?: boolean }>()
 const url = ref('')
 const failed = ref(false)
-watch(() => [props.asset.id, props.email], async (_value, _old, onCleanup) => {
+watch(() => [props.asset.id, props.email, props.original], async (_value, _old, onCleanup) => {
   let cancelled = false
   let objectUrl = ''
   onCleanup(() => { cancelled = true; if (objectUrl) URL.revokeObjectURL(objectUrl) })
@@ -12,7 +12,7 @@ watch(() => [props.asset.id, props.email], async (_value, _old, onCleanup) => {
   failed.value = false
   if (!props.email) return
   try {
-    const response = await fetch(`/api/assets/${props.asset.id}/content`, { headers: { 'X-User-Email': props.email } })
+    const response = await fetch(`/api/assets/${props.asset.id}/${props.original ? 'content' : 'thumbnail'}`, { headers: { 'X-User-Email': props.email } })
     if (!response.ok) throw new Error('图片加载失败')
     const blob = await response.blob()
     if (cancelled) return

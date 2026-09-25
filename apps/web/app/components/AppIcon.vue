@@ -4,6 +4,7 @@ const paths: Record<string, string> = {
   plus: 'M12 5v14M5 12h14',
   calendar: 'M8 2v4m8-4v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z',
   grid: 'M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z',
+  list: 'M4 6h2m4 0h10M4 12h2m4 0h10M4 18h2m4 0h10',
   chevronLeft: 'm14 6-6 6 6 6',
   chevronRight: 'm10 6 6 6-6 6',
   chevronDown: 'm6 9 6 6 6-6',

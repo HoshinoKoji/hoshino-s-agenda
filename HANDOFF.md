@@ -1,5 +1,23 @@
 # 项目交接
 
+## 本轮：素材库缩略图、引用事项、重命名及列表视图（2026-09-25）
+
+已编写：
+
+- Worker 增加 `IMAGES` binding 和按邮箱授权的 `GET /api/assets/:id/thumbnail`：首次访问从私有 R2 原图生成最大 320×320 的 WebP，写入私有 R2；后续读取该缩略图。素材库网格/列表及事项附件小图使用缩略图；大图弹窗、下载和打印继续读取原图。删除素材时将原图与缩略图的对象键一并写入原有待清理表。可预览图片因 Images binding 限制改为至多 20 MB，普通文件仍限 20 MiB；无法解码的图片缩略图返回 422，不静默回退到原图。已有图片首次访问时按需生成，无数据库迁移。
+- 增加 `PATCH /api/assets/:id` 重命名（邮箱授权、与上传同样的文件名校验，只修改元数据）；前端素材库增加网格/列表切换、重命名、引用事项标题/项目/日期展示及点击跳转，去掉 MIME type。跳转复用总览定位及已完成事项自动显隐。README 更新使用、接口和 Cloudflare Images 用量说明。
+- API 与桌面/手机浏览器回归覆盖缩略图体积、WebP 内容、缓存读取、隔离和删除后不可见、图片损坏及尺寸上限、重命名校验与下载名称、引用跳转（已完成/无日期）、两种布局及窄屏无溢出；测试图片改为实际可解码的生成 PNG。
+
+已验证：
+
+- `bun run typecheck`、`git diff --check`、`WRANGLER_LOG_PATH="$PWD/.wrangler/logs" WRANGLER_SEND_METRICS=false NUXT_TELEMETRY_DISABLED=1 bun run build` 均通过，Wrangler dry-run 识别 `DB`、`ASSETS`、`IMAGES` bindings。
+- `CHOKIDAR_USEPOLLING=1 bun run test`：**43 通过、1 桌面专属跳过**（44 项），含真实本地 Wrangler D1/R2/Images；已查看桌面/手机网格及列表截图，窄屏无横向溢出。损坏图片的 422 回归会在 Worker 日志中输出预期的转换失败堆栈。
+
+待完成 / 边界：
+
+- 未创建远程 R2 桶、执行远程 D1 `0005` 迁移或部署；上线时 Images binding 需在对应 Cloudflare 账号可用，图片转换会产生用量。按 README 顺序完成远程资源创建、迁移和部署。
+- 已存在的超过 20 MB 的可预览图片若首次请求缩略图，Cloudflare Images binding 可能拒绝转换；新上传已限制为不超过 20 MB。未在真实 Cloudflare Images 远端或实体手机上验证。
+
 ## 本轮：R2 素材库与事项附件（2026-09-25）
 
 已编写：

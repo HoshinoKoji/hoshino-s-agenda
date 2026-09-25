@@ -27,7 +27,7 @@ async function download(asset: Asset) {
     <div class="asset-attachment-list">
       <div v-for="asset in assets" :key="asset.id" class="asset-attachment">
         <button v-if="asset.image && !printable" type="button" class="asset-preview-button" :aria-label="`预览图片 ${asset.name}`" @click="expanded = asset"><AssetImage :asset="asset" :email="email" /></button>
-        <AssetImage v-else-if="asset.image" class="asset-print-image" :asset="asset" :email="email" eager />
+        <AssetImage v-else-if="asset.image" class="asset-print-image" :asset="asset" :email="email" eager original />
         <span v-else class="asset-file-symbol"><AppIcon name="file" :size="20" /></span>
         <button v-if="!printable" type="button" class="asset-download" :disabled="!!downloading" @click="download(asset)">{{ asset.name }}</button>
         <span v-else class="asset-download">{{ asset.name }}</span>
@@ -35,5 +35,5 @@ async function download(asset: Asset) {
     </div>
     <p v-if="error" class="form-error" role="alert">{{ error }}</p>
   </section>
-  <AppDialog v-if="expanded" :title="expanded.name" wide @close="expanded = null"><div class="asset-expanded-image"><AssetImage :asset="expanded" :email="email" /></div><button class="button secondary" @click="download(expanded)">下载原图</button></AppDialog>
+  <AppDialog v-if="expanded" :title="expanded.name" wide @close="expanded = null"><div class="asset-expanded-image"><AssetImage :asset="expanded" :email="email" original /></div><button class="button secondary" @click="download(expanded)">下载原图</button></AppDialog>
 </template>
