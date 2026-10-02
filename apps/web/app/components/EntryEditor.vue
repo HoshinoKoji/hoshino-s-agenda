@@ -2,6 +2,7 @@
 import { DESCRIPTION_MAX_LENGTH, type Asset, type Entry, type EntryInput, type Project } from '../../../../shared/types'
 import { descriptionReferences, legacyReferenceIds, MAX_ENTRY_REFERENCES, mentionIds } from '../../../../shared/mentions'
 import { dateKey } from '~/utils/dates'
+import { encryptDescription, encryptDescriptionWithKey, validateEncryptionPassword } from '../../../../shared/encryption'
 const props = defineProps<{
   entry?: Entry
   date: string | null
@@ -15,16 +16,25 @@ const props = defineProps<{
   remove: (id: string) => Promise<void>
 }>()
 const emit = defineEmits<{ close: []; export: [entry: Entry] }>()
+const encryption = useEntryEncryption()
+const initialEncrypted = props.entry?.encryptedDescription
+const initialDescription = props.entry ? encryption.description(props.entry) : ''
+const descriptionReady = ref(initialDescription !== undefined)
+const locked = computed(() => !!initialEncrypted && !descriptionReady.value)
+const encrypted = ref(!!initialEncrypted)
+const changingPassword = ref(false)
+const password = ref('')
+const confirmPassword = ref('')
 const initialDate = props.entry ? props.entry.date : props.date
 const undated = ref(initialDate === null)
 const form = reactive<Omit<EntryInput, 'references' | 'date'> & { description: string; date: string }>({
   title: props.entry?.title || '',
-  description: props.entry?.description || '',
+  description: initialDescription ?? '',
   date: initialDate ?? dateKey(new Date()),
   projectId: props.entry?.projectId || props.projectId || props.projects[0]?.id || '',
   completed: props.entry?.completed || false,
 })
-const legacy = ref(props.entry ? legacyReferenceIds(props.entry) : [])
+const legacy = ref(props.entry && descriptionReady.value ? legacyReferenceIds({ ...props.entry, description: form.description }) : [])
 const busy = ref(false)
 const uploading = ref(false)
 const assetIds = ref<string[]>([...(props.entry?.assetIds || [])])
@@ -36,7 +46,9 @@ const projectOpen = ref(false)
 const error = ref('')
 const confirming = ref(false)
 const entryMap = computed(() => new Map(props.entries.map(entry => [entry.id, entry])))
-const references = computed(() => descriptionReferences(form.description, props.entries, props.entry?.id, legacy.value))
+const references = computed(() => locked.value
+  ? (props.entry?.references || []).filter(id => props.entries.some(entry => entry.id === id))
+  : descriptionReferences(form.description, props.entries, props.entry?.id, legacy.value))
 const incoming = computed(() => props.entries.filter(entry => props.entry && entry.id !== props.entry.id && entry.references.includes(props.entry.id)))
 const projectItems = computed(() => props.projects.map(project => ({ label: project.name, value: project.id })))
 function closeProjectOnEscape(event: KeyboardEvent) {
@@ -49,13 +61,47 @@ function updateDescription(value: string) {
   const inline = new Set(mentionIds(value))
   legacy.value = legacy.value.filter(id => !inline.has(id))
 }
+function unlocked() {
+  if (!props.entry) return
+  const description = encryption.description(props.entry)
+  if (description === undefined) return
+  form.description = description
+  legacy.value = legacyReferenceIds({ ...props.entry, description })
+  descriptionReady.value = true
+}
+watch([encrypted, changingPassword], () => {
+  if (!encrypted.value || (initialEncrypted && !changingPassword.value)) {
+    password.value = ''
+    confirmPassword.value = ''
+  }
+})
+onUnmounted(() => { form.description = ''; password.value = ''; confirmPassword.value = '' })
 async function save() {
   if (busy.value || uploading.value) return
   if (form.description.length > DESCRIPTION_MAX_LENGTH) { error.value = `描述不能超过 ${DESCRIPTION_MAX_LENGTH} 字符。`; return }
   if (references.value.length > MAX_ENTRY_REFERENCES) { error.value = '最多引用 50 个不同事项，请移除多余引用后保存。'; return }
   busy.value = true
   error.value = ''
-  try { await props.submit({ ...form, date: undated.value ? null : form.date, references: [...references.value], assetIds: [...assetIds.value] }, props.entry?.id); emit('close') }
+  try {
+    let encryptedDescription = locked.value ? initialEncrypted : null
+    if (encrypted.value && !locked.value) {
+      if (!initialEncrypted || changingPassword.value) {
+        validateEncryptionPassword(password.value)
+        if (password.value !== confirmPassword.value) throw new Error('两次输入的加密密码不一致')
+        encryptedDescription = (await encryptDescription(form.description, password.value)).encryptedDescription
+      } else {
+        const secret = props.entry && encryption.get(props.entry)
+        if (!secret) throw new Error('描述已重新锁定，请关闭编辑器后重新解锁')
+        encryptedDescription = form.description === secret.description ? initialEncrypted
+          : await encryptDescriptionWithKey(form.description, secret.key, initialEncrypted.salt)
+      }
+    }
+    await props.submit({ ...form, description: encryptedDescription ? '' : form.description,
+      encryptedDescription: encryptedDescription ?? null, date: undated.value ? null : form.date,
+      references: [...references.value], assetIds: [...assetIds.value] }, props.entry?.id)
+    if (props.entry) encryption.lock(props.entry.id)
+    emit('close')
+  }
   catch (cause) { error.value = (cause as Error).message }
   finally { busy.value = false }
 }
@@ -107,7 +153,21 @@ async function remove() {
           </div>
           <div class="field"><div class="date-field-heading"><span>记录日期</span><label class="checkbox-label date-option"><input v-model="undated" type="checkbox">不设日期</label></div><span v-if="undated" class="undated-placeholder">未设日期</span><DatePicker v-else v-model="form.date" label="记录日期" :disabled="busy" :portal="false" /></div>
         </div>
-        <EntryDescriptionEditor :model-value="form.description" :entries="entries" :projects="projects" :references="references" :self-id="entry?.id" :disabled="busy" @update:model-value="updateDescription" />
+        <section class="description-security" aria-label="描述加密设置">
+          <label class="checkbox-label"><input v-model="encrypted" type="checkbox" :disabled="locked">加密描述</label>
+          <p class="field-help">仅加密描述正文；标题、项目、日期、状态、引用关系和附件仍可见。密码和解密内容仅留在当前页面内存中。</p>
+          <template v-if="!locked && encrypted">
+            <button v-if="initialEncrypted" type="button" class="text-button" :aria-expanded="changingPassword" @click="changingPassword = !changingPassword">{{ changingPassword ? '取消更改密码' : '更改加密密码' }}</button>
+            <div v-if="!initialEncrypted || changingPassword" class="field-row encryption-passwords">
+              <label class="field">加密密码<input v-model="password" type="password" autocomplete="new-password" maxlength="256" placeholder="8–256 个字符"></label>
+              <label class="field">确认加密密码<input v-model="confirmPassword" type="password" autocomplete="new-password" maxlength="256"></label>
+            </div>
+            <p v-if="!initialEncrypted || changingPassword" class="field-help">请记住此事项的独立密码，忘记后无法恢复描述。保存后描述会重新锁定。</p>
+          </template>
+          <EntryUnlock v-if="locked && entry" :entry="entry" @unlocked="unlocked" />
+          <p v-if="locked" class="field-help">可直接修改其他字段，原密文和引用会保留；修改描述、更改密码或取消加密前请先解锁。</p>
+        </section>
+        <EntryDescriptionEditor v-if="!locked" :model-value="form.description" :entries="entries" :projects="projects" :references="references" :self-id="entry?.id" :disabled="busy" @update:model-value="updateDescription" />
         <section class="entry-assets-section" aria-label="事项附件">
           <div class="section-label"><span><AppIcon name="file" :size="16" />附件 · {{ assetIds.length }} / 50</span></div>
           <div v-if="selectedAssets.length" class="entry-asset-chips"><div v-for="asset in selectedAssets" :key="asset.id" class="entry-asset-chip"><AssetImage v-if="asset.image" :asset="asset" :email="email" /><AppIcon v-else name="file" :size="18" /><span>{{ asset.name }}</span><button type="button" class="icon-button" :aria-label="`移除附件 ${asset.name}`" @click="assetIds = assetIds.filter(id => id !== asset.id)"><AppIcon name="close" :size="14" /></button></div></div>
@@ -115,7 +175,7 @@ async function remove() {
           <div v-if="assetPicker" class="entry-asset-picker"><input v-model="assetQuery" type="search" aria-label="搜索可引用素材" placeholder="搜索素材名称"><div class="entry-asset-options"><button v-for="asset in availableAssets" :key="asset.id" type="button" :disabled="assetIds.length >= 50" @click="assetIds.push(asset.id)"><AppIcon :name="asset.image ? 'grid' : 'file'" :size="16" /><span>{{ asset.name }}</span></button><p v-if="!availableAssets.length" class="small-empty">暂无可选素材</p></div></div>
           <p class="field-help">上传后的文件保存在素材库；取消编辑不会删除已上传的素材。</p>
         </section>
-        <section v-if="legacy.length" class="legacy-references">
+        <section v-if="!locked && legacy.length" class="legacy-references">
           <div class="section-label"><span><AppIcon name="link" :size="16" />已有引用</span></div>
           <p class="field-help">这些引用尚未写入描述，可单独移除。</p>
           <div class="reference-group"><button v-for="id in legacy" :key="id" type="button" class="reference-chip" :aria-label="`移除引用 @${entryMap.get(id)?.title || '事项已删除'}`" @click="legacy = legacy.filter(value => value !== id)">@{{ entryMap.get(id)?.title || '事项已删除' }}<AppIcon name="close" :size="12" /></button></div>

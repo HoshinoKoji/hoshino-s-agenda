@@ -1,7 +1,217 @@
-import type { Locator, Page, Request } from '@playwright/test'
+import type { Download, Locator, Page, Request } from '@playwright/test'
+import { readFile } from 'node:fs/promises'
 import { test, expect } from './fixtures'
 import { serializeMention } from '../shared/mentions'
 import { samplePng } from './image'
+import { decryptDescription, encryptDescription } from '../shared/encryption'
+
+test('可选描述加密、锁定编辑、解锁共享、改密、取消加密与独立打印', async ({ page, space, isMobile }, testInfo) => {
+  test.setTimeout(90_000)
+  await page.clock.install({ time: new Date('2026-09-13T04:00:00Z') })
+  const project = await space.project('加密事项项目')
+  const target = await space.entry(project.id, '正文引用目标', null)
+  const legacy = await space.entry(project.id, '独立引用目标', null)
+  const text = `**只在解锁后出现的正文**\n\n${serializeMention({ id: target, title: '正文引用目标' })}\n${'长描述用于验证折叠和展开。\n'.repeat(10)}`
+  const id = await space.entry(project.id, '可选加密事项', '2026-09-13', [target, legacy], text)
+  const password = '独立加密密码123'
+  const newPassword = '新独立密码456'
+  const sent: string[] = []
+  page.on('request', request => { if (/\/api\/entries(?:\/[^/]+)?$/.test(request.url()) && request.postData()) sent.push(request.postData()!) })
+  await enter(page, space.email)
+  const card = page.locator(`#entry-${id}`)
+  const dialog = page.getByRole('dialog', { name: '编辑事项', exact: true })
+  const current = async () => (await space.agenda()).entries.find(entry => entry.id === id)!
+  await card.getByRole('button', { name: '编辑事项 可选加密事项' }).click()
+  await expect(dialog.getByRole('checkbox', { name: '加密描述', exact: true })).not.toBeChecked()
+  await dialog.getByRole('checkbox', { name: '加密描述', exact: true }).check()
+  await dialog.getByLabel('加密密码', { exact: true }).fill(password)
+  await dialog.getByLabel('确认加密密码', { exact: true }).fill('不一致的密码123')
+  await dialog.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(dialog.getByRole('alert')).toContainText('不一致')
+  expect((await current()).description).toBe(text)
+  await dialog.getByLabel('确认加密密码', { exact: true }).fill(password)
+  await dialog.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(dialog).toBeHidden()
+  const original = (await current()).encryptedDescription!
+  expect((await current()).description).toBe('')
+  expect((await current()).references.sort()).toEqual([target, legacy].sort())
+  expect((await decryptDescription(original, password)).description).toBe(text)
+  expect(sent.join('\n')).not.toContain('只在解锁后出现的正文')
+  expect(sent.join('\n')).not.toContain(password)
+  await expect(card.locator('.entry-description')).toHaveCount(0)
+  await noOverflow(page)
+  await card.scrollIntoViewIfNeeded()
+  await page.screenshot({ path: testInfo.outputPath('encrypted-description-locked.png'), animations: 'disabled' })
+
+  // Locked metadata edits retain ciphertext and all references, including inline references.
+  await card.getByRole('button', { name: '编辑事项 可选加密事项' }).click()
+  await expect(dialog.getByRole('textbox', { name: '描述' })).toHaveCount(0)
+  await expect(dialog.getByRole('checkbox', { name: '加密描述', exact: true })).toBeDisabled()
+  await dialog.getByRole('textbox', { name: '事项标题' }).fill('锁定时改标题')
+  await page.route(`**/api/entries/${id}`, route => route.abort('failed'), { times: 1 })
+  await dialog.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(dialog.getByRole('alert')).toContainText('连接云端失败')
+  expect((await current()).encryptedDescription).toEqual(original)
+  await dialog.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(dialog).toBeHidden()
+  expect((await current()).encryptedDescription).toEqual(original)
+  expect((await current()).references.sort()).toEqual([target, legacy].sort())
+
+  const previewTrigger = isMobile ? page.locator('.week-entry').filter({ hasText: '锁定时改标题' }) : page.locator('.calendar-entry').filter({ hasText: '锁定时改标题' })
+  if (isMobile) await previewTrigger.click(); else await previewTrigger.hover()
+  await expect(page.locator('.calendar-tooltip')).toContainText('描述已加密')
+  await expect(page.locator('.calendar-tooltip')).not.toContainText('只在解锁后出现的正文')
+  await page.keyboard.press('Escape')
+  if (!isMobile) await page.mouse.move(0, 0)
+  await card.getByLabel('解锁密码').fill('错误的独立密码123')
+  await card.getByRole('button', { name: '解锁描述', exact: true }).click()
+  await expect(card.getByRole('alert')).toContainText('密码错误')
+  await expect(card.getByLabel('解锁密码')).toHaveValue('')
+  await card.getByLabel('解锁密码').fill(password)
+  await card.getByLabel('解锁密码').press('Enter')
+  await expect(card.locator('.entry-description strong')).toHaveText('只在解锁后出现的正文')
+  await expect(card.locator('.entry-description .entry-mention')).toHaveText('@正文引用目标')
+  await expect(card.locator('.entry-links')).toContainText('@独立引用目标')
+  await expect(card.locator('.entry-links')).not.toContainText('@正文引用目标')
+  await card.getByRole('button', { name: '显示全部', exact: true }).click()
+  await expect(card.getByRole('button', { name: '收起', exact: true })).toBeVisible()
+  await page.locator('.sync-button').click()
+  await expect(page.locator('.sync-button')).toContainText('已与云端同步')
+  await expect(card.locator('.entry-description strong')).toBeVisible()
+  if (isMobile) await previewTrigger.click(); else await previewTrigger.hover()
+  await expect(page.locator('.calendar-tooltip')).toContainText('只在解锁后出现的正文')
+  await page.keyboard.press('Escape')
+  if (!isMobile) await page.mouse.move(0, 0)
+
+  // Printing never transfers passwords or plaintext into a URL or another tab.
+  const popup = page.waitForEvent('popup')
+  await card.getByRole('button', { name: '导出事项 锁定时改标题' }).click()
+  const printPage = await popup
+  await expect(printPage.getByRole('button', { name: '打印 / 保存为 PDF' })).toBeDisabled()
+  await expect(printPage.locator('.print-sheet .entry-description')).toHaveCount(0)
+  await printPage.getByLabel('解锁密码').fill(password)
+  await printPage.getByRole('button', { name: '解锁描述', exact: true }).click()
+  await expect(printPage.locator('.entry-description strong')).toHaveText('只在解锁后出现的正文')
+  await expect(printPage.getByRole('button', { name: '打印 / 保存为 PDF' })).toBeEnabled()
+  await noOverflow(printPage)
+  await printPage.emulateMedia({ media: 'print' })
+  await expect(printPage.getByRole('button', { name: '重新锁定描述' })).toBeHidden()
+  expect((await printPage.pdf({ format: 'A4', printBackground: true })).subarray(0, 5).toString()).toBe('%PDF-')
+  await printPage.reload()
+  await expect(printPage.locator('.entry-description')).toHaveCount(0)
+  await printPage.close()
+
+  await card.getByRole('button', { name: '编辑事项 锁定时改标题' }).click()
+  await expect(dialog.getByRole('textbox', { name: '描述' })).toHaveValue(text)
+  const edited = text.replace('只在解锁后出现的正文', '已修改的秘密正文')
+  await dialog.getByRole('textbox', { name: '描述' }).fill(edited)
+  await dialog.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(dialog).toBeHidden()
+  const updated = (await current()).encryptedDescription!
+  expect(updated.salt).toBe(original.salt)
+  expect(updated.iv).not.toBe(original.iv)
+  expect((await decryptDescription(updated, password)).description).toBe(edited)
+  await card.getByRole('button', { name: '编辑事项 锁定时改标题' }).click()
+  await dialog.getByLabel('解锁密码').fill(password)
+  await dialog.getByRole('button', { name: '解锁描述', exact: true }).click()
+  await dialog.getByRole('button', { name: '更改加密密码', exact: true }).click()
+  await dialog.getByLabel('加密密码', { exact: true }).fill(newPassword)
+  await dialog.getByLabel('确认加密密码', { exact: true }).fill(newPassword)
+  await dialog.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(dialog).toBeHidden()
+  const changed = (await current()).encryptedDescription!
+  expect(changed.salt).not.toBe(original.salt)
+  await expect(decryptDescription(changed, password)).rejects.toThrow('密码错误')
+  expect((await decryptDescription(changed, newPassword)).description).toBe(edited)
+  await card.getByLabel('解锁密码').fill(newPassword)
+  await card.getByRole('button', { name: '解锁描述', exact: true }).click()
+  if (isMobile) await page.setViewportSize({ width: 320, height: 844 })
+  await noOverflow(page)
+  await card.scrollIntoViewIfNeeded()
+  await page.screenshot({ path: testInfo.outputPath('encrypted-description-unlocked.png'), animations: 'disabled' })
+  await card.getByRole('button', { name: '重新锁定描述', exact: true }).click()
+  await expect(card.locator('.entry-description')).toHaveCount(0)
+  await page.reload()
+  await expect(card.locator('.entry-description')).toHaveCount(0)
+  const stored = await page.evaluate(() => JSON.stringify([Object.entries(localStorage), Object.entries(sessionStorage)]))
+  expect(stored).not.toContain(password)
+  expect(stored).not.toContain(newPassword)
+  expect(stored).not.toContain('秘密正文')
+
+  await card.getByRole('button', { name: '编辑事项 锁定时改标题' }).click()
+  await dialog.getByLabel('解锁密码').fill(newPassword)
+  await dialog.getByRole('button', { name: '解锁描述', exact: true }).click()
+  await dialog.getByRole('checkbox', { name: '加密描述', exact: true }).uncheck()
+  await dialog.getByRole('button', { name: '取消', exact: true }).click()
+  expect((await current()).encryptedDescription).toEqual(changed)
+  await card.getByRole('button', { name: '编辑事项 锁定时改标题' }).click()
+  await dialog.getByRole('checkbox', { name: '加密描述', exact: true }).uncheck()
+  await dialog.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(dialog).toBeHidden()
+  expect((await current()).encryptedDescription).toBeUndefined()
+  expect((await current()).description).toBe(edited)
+})
+
+test('新建事项独立密码、密文更新使解锁失效、切换邮箱隔离迟到解密', async ({ page, space, otherSpace }) => {
+  test.setTimeout(60_000)
+  await page.clock.install({ time: new Date('2026-09-13T04:00:00Z') })
+  const project = await space.project('独立密码项目')
+  await otherSpace.project('另一个空间')
+  await enter(page, space.email)
+  await page.locator('.add-main').click()
+  const dialog = page.getByRole('dialog', { name: '添加事项', exact: true })
+  await dialog.getByRole('textbox', { name: '事项标题' }).fill('新建加密事项')
+  await dialog.getByRole('checkbox', { name: '加密描述', exact: true }).check()
+  await dialog.getByRole('textbox', { name: '描述' }).fill('新建秘密正文')
+  await dialog.getByLabel('加密密码', { exact: true }).fill('新建事项密码123')
+  await dialog.getByLabel('确认加密密码', { exact: true }).fill('新建事项密码123')
+  await dialog.getByRole('button', { name: '添加事项', exact: true }).click()
+  await expect(dialog).toBeHidden()
+  const entry = (await space.agenda()).entries[0]!
+  const card = page.locator(`#entry-${entry.id}`)
+  expect(entry.description).toBe('')
+  await card.getByLabel('解锁密码').fill('新建事项密码123')
+  await card.getByRole('button', { name: '解锁描述', exact: true }).click()
+  await expect(card.locator('.entry-description')).toHaveText('新建秘密正文')
+  const { encryptedDescription } = await encryptDescription('云端更新后的秘密', '第二个独立密码456')
+  expect((await space.api.put(`/api/entries/${entry.id}`, { data: { ...entry, projectId: project.id, encryptedDescription } })).ok()).toBe(true)
+  await page.locator('.sync-button').click()
+  await expect(card.locator('.entry-description')).toHaveCount(0)
+  await card.getByLabel('解锁密码').fill('新建事项密码123')
+  await card.getByRole('button', { name: '解锁描述', exact: true }).click()
+  await expect(card.getByRole('alert')).toContainText('密码错误')
+
+  // Pause Web Crypto after KDF so an old account cannot receive a late unlock result.
+  await page.evaluate(() => {
+    const original = crypto.subtle.decrypt.bind(crypto.subtle)
+    let release!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    ;(window as unknown as { releaseDecrypt: () => void }).releaseDecrypt = release
+    crypto.subtle.decrypt = async (...args: Parameters<typeof original>) => {
+      document.documentElement.dataset.decryptStarted = 'true'
+      await gate
+      try { return await original(...args) }
+      finally { document.documentElement.dataset.decryptFinished = 'true' }
+    }
+  })
+  await card.getByLabel('解锁密码').fill('第二个独立密码456')
+  await card.getByRole('button', { name: '解锁描述', exact: true }).click()
+  await expect(page.locator('html')).toHaveAttribute('data-decrypt-started', 'true')
+  await switchSpace(page, otherSpace.email)
+  await expect(page.getByRole('button', { name: /^另一个空间/ })).toBeVisible()
+  await page.evaluate(() => (window as unknown as { releaseDecrypt: () => void }).releaseDecrypt())
+  await expect(page.locator('html')).toHaveAttribute('data-decrypt-finished', 'true')
+  await switchSpace(page, space.email)
+  await expect(card).toBeVisible()
+  await expect(card.locator('.entry-description')).toHaveCount(0)
+  await card.getByLabel('解锁密码').fill('第二个独立密码456')
+  await card.getByRole('button', { name: '解锁描述', exact: true }).click()
+  await expect(card.locator('.entry-description')).toHaveText('云端更新后的秘密')
+  await switchSpace(page, otherSpace.email)
+  await switchSpace(page, space.email)
+  await expect(card).toBeVisible()
+  await expect(card.locator('.entry-description')).toHaveCount(0)
+})
 
 test('素材库上传、事项引用与上传附件、图片预览和打印', async ({ page, space, otherSpace, isMobile }, testInfo) => {
   test.setTimeout(90_000)
@@ -45,10 +255,13 @@ test('素材库上传、事项引用与上传附件、图片预览和打印', as
   await expect(card.locator('.asset-preview-button img')).toBeVisible()
   await card.getByRole('button', { name: '预览图片 图像.png' }).click()
   await expect(page.getByRole('dialog', { name: '图像.png' }).locator('img')).toBeVisible()
+  const imageDownload = page.waitForEvent('download')
+  await page.getByRole('dialog', { name: '图像.png' }).getByRole('button', { name: '下载原图', exact: true }).click()
+  await expectAssetDownload(await imageDownload, '图像.png', png)
   await page.getByRole('dialog', { name: '图像.png' }).getByRole('button', { name: '关闭弹窗' }).click()
   const download = page.waitForEvent('download')
   await card.getByRole('button', { name: '笔记.txt' }).click()
-  expect((await download).suggestedFilename()).toBe('笔记.txt')
+  await expectAssetDownload(await download, '笔记.txt', Buffer.from('asset note'))
   const popup = page.waitForEvent('popup')
   await card.getByRole('button', { name: '导出事项 有附件的事项' }).click()
   const printPage = await popup
@@ -85,7 +298,7 @@ test('素材库上传、事项引用与上传附件、图片预览和打印', as
   await expect(referencePopover).toBeHidden()
   const libraryDownload = page.waitForEvent('download')
   await page.getByRole('button', { name: '下载素材 新笔记.txt' }).click()
-  expect((await libraryDownload).suggestedFilename()).toBe('新笔记.txt')
+  await expectAssetDownload(await libraryDownload, '新笔记.txt', Buffer.from('asset note'))
   await page.getByRole('searchbox', { name: '搜索素材' }).fill('')
   await page.getByRole('button', { name: '全部', exact: true }).click()
   await expect(page.locator('.asset-library-card')).toHaveCount(2)
@@ -128,6 +341,14 @@ test('素材库上传、事项引用与上传附件、图片预览和打印', as
   await expect(page.locator('.asset-library-card')).toHaveCount(0)
   if (isMobile) await noOverflow(page)
 })
+
+async function expectAssetDownload(download: Download, name: string, bytes: Buffer) {
+  expect(download.suggestedFilename()).toBe(name)
+  expect(await download.failure()).toBeNull()
+  const path = await download.path()
+  expect(path).not.toBeNull()
+  expect(await readFile(path!)).toEqual(bytes)
+}
 
 test('素材卡片操作始终贴近底部', async ({ page, space, isMobile }, testInfo) => {
   const longName = `${'很长的素材文件名称'.repeat(10)}.txt`

@@ -5,6 +5,7 @@ import { apiPort, apiURL } from './tests/environment'
 
 const dev = process.env.AGENDA_TEST_DEV === '1'
 const workerEnv = { WRANGLER_SEND_METRICS: 'false', WRANGLER_LOG_PATH: resolve('.wrangler/logs'), NUXT_TELEMETRY_DISABLED: '1' }
+const browserEnv = Object.fromEntries(Object.entries(process.env).filter(([, value]) => value !== undefined))
 
 export default defineConfig({
   testDir: './tests',
@@ -17,6 +18,8 @@ export default defineConfig({
   use: {
     baseURL: dev ? 'http://127.0.0.1:3000' : apiURL,
     locale: 'zh-CN',
+    // Chromium uses the Linux process locale for filenames, separately from context locale.
+    ...(process.platform === 'linux' ? { launchOptions: { env: { ...browserEnv, LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' } } } : {}),
     timezoneId: 'Asia/Shanghai',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',

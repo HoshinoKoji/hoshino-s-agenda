@@ -218,6 +218,17 @@ button { transition: background .15s, color .15s; }
 .entry-description pre { padding: .5em .7em; white-space: pre-wrap; overflow-wrap: anywhere; }
 .entry-description pre code { padding: 0; }
 .entry-description.is-collapsed { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; max-height: 4lh; overflow: hidden; }
+.description-lock-label { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-top: 12px; color: var(--muted); font-size: 12px; }
+.description-lock-label .text-button { font-size: 12px; padding: 0; }
+.description-unlock { margin-top: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: #fcfbfd; }
+.description-unlock .description-lock-label { margin-top: 0; }
+.description-unlock-actions { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; margin-top: 10px; }
+.description-unlock-actions .field { flex: 1 1 140px; min-width: 0; margin: 0; }
+.description-unlock-actions .button { min-height: 43px; }
+.description-security { margin-bottom: 20px; }
+.description-security > .field-help { margin-top: 8px; }
+.encryption-passwords { margin-top: 12px; }
+.encryption-passwords .field { min-width: 0; margin-bottom: 8px; }
 .description-toggle { display: block; margin-top: 4px; padding: 2px 0; border: 0; background: transparent; color: var(--primary); font-size: 12px; cursor: pointer; }
 .description-toggle:hover { text-decoration: underline; }
 .entry-mention { display: inline; border-radius: 4px; padding: 1px 3px; background: var(--lavender); color: var(--primary); font: inherit; text-align: left; white-space: inherit; overflow-wrap: anywhere; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
@@ -344,6 +355,7 @@ button.entry-mention:hover { background: #f7d9e7; text-decoration: underline; }
   body { background: white; }
   .print-page { max-width: none; min-height: 0; margin: 0; padding: 0; }
   .print-toolbar { display: none; }
+  .print-sheet .description-unlock-actions, .print-sheet .description-lock-label .text-button, .print-sheet .description-unlock .form-error { display: none; }
   .print-sheet { min-height: 0; padding: 0; border: 0; border-radius: 0; }
   .print-section .entry-description { color: #202020; }
   .print-section :is(p, li, blockquote, pre) { orphans: 2; widows: 2; }

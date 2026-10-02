@@ -14,13 +14,16 @@ const props = defineProps<{
   synced: boolean
 }>()
 const emit = defineEmits<{ retry: []; enter: [email: string] }>()
+const encryption = useEntryEncryption()
 const entry = computed(() => props.entries.find(item => item.id === props.entryId))
+const locked = computed(() => !!entry.value?.encryptedDescription && encryption.description(entry.value) === undefined)
 const project = computed(() => props.projects.find(item => item.id === entry.value?.projectId))
 const entryMap = computed(() => new Map(props.entries.map(item => [item.id, item])))
-const legacy = computed(() => entry.value ? legacyReferenceIds(entry.value).map(id => entryMap.value.get(id)?.title ?? '事项已删除') : [])
+const legacy = computed(() => entry.value ? legacyReferenceIds({ ...entry.value, description: encryption.description(entry.value) ?? '' }).map(id => entryMap.value.get(id)?.title ?? '事项已删除') : [])
 const backlinks = computed(() => props.entries.filter(item => item.id !== props.entryId && item.references.includes(props.entryId)))
 const attachments = computed(() => (entry.value?.assetIds || []).map(id => props.assets.find(asset => asset.id === id)).filter((asset): asset is Asset => !!asset))
 async function printEntry() {
+  if (locked.value) return
   const deadline = Date.now() + 10_000
   const count = attachments.value.filter(asset => asset.image).length
   while (document.querySelectorAll('.print-sheet .asset-print-image').length < count && Date.now() < deadline &&
@@ -28,7 +31,7 @@ async function printEntry() {
     await new Promise(resolve => setTimeout(resolve, 80))
   }
   await Promise.all(Array.from(document.querySelectorAll<HTMLImageElement>('.print-sheet img')).map(image => image.decode().catch(() => {})))
-  window.print()
+  if (!locked.value) window.print()
 }
 
 useHead({ title: computed(() => entry.value ? `${entry.value.title} · 日迹事项` : '事项打印 · 日迹') })
@@ -38,7 +41,7 @@ useHead({ title: computed(() => entry.value ? `${entry.value.title} · 日迹事
   <main class="print-page">
     <header class="print-toolbar">
       <a href="/" class="button secondary">返回工作台</a>
-      <button v-if="entry && project && !error && synced && !loading" class="button primary" @click="printEntry"><AppIcon name="print" :size="17" />打印 / 保存为 PDF</button>
+      <button v-if="entry && project && !error && synced && !loading" class="button primary" :disabled="locked" :title="locked ? '请先解锁描述再打印' : undefined" @click="printEntry"><AppIcon name="print" :size="17" />打印 / 保存为 PDF</button>
     </header>
     <section v-if="!email" class="print-message">
       <h1>输入邮箱后查看事项</h1>
@@ -61,9 +64,9 @@ useHead({ title: computed(() => entry.value ? `${entry.value.title} · 日迹事
         <div><dt>状态</dt><dd>{{ entry.completed ? '已完成' : '进行中' }}</dd></div>
         <div><dt>添加日期</dt><dd>{{ dateKey(new Date(entry.createdAt)) }}</dd></div>
       </dl>
-      <section v-if="entry.description" class="print-section">
+      <section v-if="entry.description || entry.encryptedDescription" class="print-section">
         <h2>描述</h2>
-        <div class="entry-description"><EntryMarkdown :entry="entry" :entries="entries" :projects="projects" :interactive="false" /></div>
+        <EntryDescription :entry="entry" :entries="entries" :projects="projects" :interactive="false" unlockable />
       </section>
       <section v-if="attachments.length" class="print-section"><h2>附件</h2><AssetAttachments :assets="attachments" :email="email" printable /></section>
       <section v-if="legacy.length" class="print-section">

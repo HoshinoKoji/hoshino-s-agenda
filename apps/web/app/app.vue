@@ -18,6 +18,14 @@ const showProjectOrder = ref(false)
 const projectEditor = ref<{ project?: Project } | null>(null)
 const entryEditor = ref<{ entry?: Entry; date: string | null; projectId: string } | null>(null)
 const { data, loading, saving, reordering, error, syncedAt, refresh, saveProject, saveEntry, deleteProject, deleteEntry, deleteAsset, renameAsset, uploadAsset, toggleEntry, moveEntry, reorderProjects } = useAgenda(email)
+provideEntryEncryption(email, computed(() => data.value.entries))
+watch(email, () => { entryEditor.value = null; projectEditor.value = null }, { flush: 'sync' })
+watch(() => data.value.entries, entries => {
+  const editing = entryEditor.value?.entry
+  if (!editing) return
+  const latest = entries.find(entry => entry.id === editing.id)
+  if (!latest || JSON.stringify(latest.encryptedDescription) !== JSON.stringify(editing.encryptedDescription)) entryEditor.value = null
+})
 let clock: ReturnType<typeof setInterval> | undefined
 
 onMounted(() => {

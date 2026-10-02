@@ -1,5 +1,6 @@
 import { and, count, eq, inArray, max } from 'drizzle-orm'
-import { DESCRIPTION_MAX_LENGTH, type AgendaData, type Asset, type EntryInput, type ProjectInput } from '../../../shared/types'
+import { DESCRIPTION_MAX_LENGTH, type AgendaData, type Asset, type EncryptedDescription, type EntryInput, type ProjectInput } from '../../../shared/types'
+import { isEncryptedDescription } from '../../../shared/encryption'
 import { createDb, type Database } from './db'
 import { accounts, assetDeletions, assets, entries, entryAssets, entryReferences, projects } from './db/schema'
 
@@ -136,7 +137,7 @@ function entryDate(value: unknown): string | null {
   return date
 }
 
-function entryInput(value: Record<string, unknown>, id: string): EntryInput & { description: string } {
+function entryInput(value: Record<string, unknown>, id: string): EntryInput & { description: string; encryptedDescription: EncryptedDescription | null } {
   const title = text(value.title, '事项标题', 200)
   if (value.description !== undefined && typeof value.description !== 'string') {
     fail(400, '事项描述必须为字符串')
@@ -146,6 +147,9 @@ function entryInput(value: Record<string, unknown>, id: string): EntryInput & { 
   if (description.length > DESCRIPTION_MAX_LENGTH) {
     fail(400, `事项描述不能超过 ${DESCRIPTION_MAX_LENGTH} 个 UTF-16 单元`)
   }
+  const encryptedDescription = value.encryptedDescription ?? null
+  if (encryptedDescription !== null && !isEncryptedDescription(encryptedDescription)) fail(400, '加密描述格式无效或版本不受支持')
+  if (encryptedDescription !== null && description !== '') fail(400, '加密描述不能同时提交明文正文')
   const projectId = text(value.projectId, '项目 ID', 64)
   const date = entryDate(value.date)
   if (typeof value.completed !== 'boolean') fail(400, '完成状态必须为布尔值')
@@ -160,7 +164,7 @@ function entryInput(value: Record<string, unknown>, id: string): EntryInput & { 
     fail(400, '素材引用必须为素材 ID 列表，最多 50 个')
   }
   const assetIds = value.assetIds === undefined ? undefined : [...new Set(value.assetIds as string[])]
-  return { title, description, projectId, date, completed: value.completed, references, assetIds }
+  return { title, description, encryptedDescription, projectId, date, completed: value.completed, references, assetIds }
 }
 
 async function ensureOwned(db: Database, table: typeof projects | typeof entries, id: string, email: string) {
@@ -182,7 +186,7 @@ async function route(request: Request, env: Env): Promise<Response> {
         .from(projects).where(eq(projects.ownerEmail, email)).orderBy(projects.sortOrder, projects.createdAt, projects.id),
       db.select({
         id: entries.id, projectId: entries.projectId, date: entries.date, title: entries.title,
-        description: entries.description,
+        description: entries.description, encryptedDescription: entries.encryptedDescription,
         completed: entries.completed, createdAt: entries.createdAt, updatedAt: entries.updatedAt,
       }).from(entries).where(eq(entries.ownerEmail, email)).orderBy(entries.date, entries.createdAt, entries.id),
       db.select({ sourceId: entryReferences.sourceId, targetId: entryReferences.targetId })
@@ -205,7 +209,9 @@ async function route(request: Request, env: Env): Promise<Response> {
     }
     return json({
       projects: projectRows,
-      entries: entryRows.map(row => ({ ...row, references: references.get(row.id) || [], assetIds: attachments.get(row.id) || [] })),
+      entries: entryRows.map(({ encryptedDescription, ...row }) => ({ ...row,
+        ...(encryptedDescription ? { encryptedDescription } : {}),
+        references: references.get(row.id) || [], assetIds: attachments.get(row.id) || [] })),
       assets: assetRows.map(row => ({ ...row, usageCount: usage.get(row.id) || 0 })),
     } satisfies AgendaData)
   }
@@ -347,8 +353,14 @@ async function route(request: Request, env: Env): Promise<Response> {
   const entryMatch = path.match(/^\/api\/entries\/([\w-]+)$/)
   if ((path === '/api/entries' && method === 'POST') || (entryMatch && method === 'PUT')) {
     const id = entryMatch?.[1] || crypto.randomUUID()
-    if (entryMatch) await ensureOwned(db, entries, id, email)
-    const data = entryInput(await body(request), id)
+    const current = entryMatch ? await db.select({ encryptedDescription: entries.encryptedDescription }).from(entries)
+      .where(and(eq(entries.id, id), eq(entries.ownerEmail, email))).get() : undefined
+    if (entryMatch && !current) fail(404, '事项不存在')
+    const input = await body(request)
+    if (current?.encryptedDescription && !Object.hasOwn(input, 'encryptedDescription')) {
+      fail(409, '此事项的描述已加密，请使用支持加密的客户端并明确提交加密字段')
+    }
+    const data = entryInput(input, id)
     await ensureOwned(db, projects, data.projectId, email)
     if (data.references.length) {
       const row = await db.select({ count: count() }).from(entries)
@@ -367,6 +379,7 @@ async function route(request: Request, env: Env): Promise<Response> {
     const now = new Date().toISOString()
     const values = {
       projectId: data.projectId, date: data.date, title: data.title, description: data.description,
+      encryptedDescription: data.encryptedDescription,
       completed: data.completed, updatedAt: now,
     }
     const write = entryMatch
@@ -380,7 +393,8 @@ async function route(request: Request, env: Env): Promise<Response> {
       db.delete(entryAssets).where(and(eq(entryAssets.entryId, id), eq(entryAssets.ownerEmail, email))),
       ...assetIds.map(assetId => db.insert(entryAssets).values({ entryId: id, assetId, ownerEmail: email })),
     ])
-    return json({ id, description: data.description }, entryMatch ? 200 : 201)
+    return json({ id, description: data.description,
+      ...(data.encryptedDescription ? { encryptedDescription: data.encryptedDescription } : {}) }, entryMatch ? 200 : 201)
   }
 
   if (entryMatch && (method === 'PATCH' || method === 'DELETE')) {

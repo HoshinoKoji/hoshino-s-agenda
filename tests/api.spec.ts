@@ -2,6 +2,67 @@ import { test, expect } from './fixtures'
 import { PROJECT_COLORS } from '../shared/types'
 import { samplePng } from './image'
 import { apiURL } from './environment'
+import { decryptDescription, encryptDescription, encryptDescriptionWithKey, isEncryptedDescription } from '../shared/encryption'
+
+test('描述加密无损往返、独立随机盐与 IV、错误密码和篡改拒绝', async () => {
+  const password = '  独立密码 😀  '
+  for (const description of ['', ' \n\t\r\n**正文** 😀\u0000\ud800  ', '\u0000'.repeat(4000), '😀'.repeat(2000)]) {
+    const { encryptedDescription, key } = await encryptDescription(description, password)
+    expect(isEncryptedDescription(encryptedDescription)).toBe(true)
+    expect((await decryptDescription(encryptedDescription, password)).description).toBe(description)
+    const again = await encryptDescriptionWithKey(description, key, encryptedDescription.salt)
+    expect(again.iv).not.toBe(encryptedDescription.iv)
+    expect((await decryptDescription(again, password)).description).toBe(description)
+  }
+  const first = (await encryptDescription('秘密', password)).encryptedDescription
+  const second = (await encryptDescription('秘密', password)).encryptedDescription
+  expect(first.salt).not.toBe(second.salt)
+  expect(first.ciphertext).not.toBe(second.ciphertext)
+  await expect(decryptDescription(first, '错误的密码123')).rejects.toThrow('密码错误或加密描述已损坏')
+  const tampered = { ...first, ciphertext: (first.ciphertext[0] === 'A' ? 'B' : 'A') + first.ciphertext.slice(1) }
+  await expect(decryptDescription(tampered, password)).rejects.toThrow('密码错误或加密描述已损坏')
+  await expect(encryptDescription('x'.repeat(4001), password)).rejects.toThrow('4000')
+  await expect(encryptDescription('秘密', '短密码')).rejects.toThrow('8–256')
+})
+
+test('加密描述仅存密文、格式与旧客户端保护、锁定保存和显式取消加密', async ({ space, otherSpace }) => {
+  const project = await space.project('加密项目')
+  const target = await space.entry(project.id, '引用目标', null)
+  const description = `**私密正文** @[引用目标](item:${target})`
+  const { encryptedDescription } = await encryptDescription(description, '每个事项独立密码')
+  const input = { projectId: project.id, title: '标题仍可见', date: null, completed: false, references: [target], encryptedDescription }
+  const response = await space.api.post('/api/entries', { data: input })
+  expect(response.status()).toBe(201)
+  const { id } = await response.json()
+  const current = async () => (await space.agenda()).entries.find(entry => entry.id === id)!
+  expect(await current()).toMatchObject({ description: '', encryptedDescription, references: [target] })
+  expect(JSON.stringify(await space.agenda())).not.toContain('私密正文')
+  expect((await otherSpace.api.put(`/api/entries/${id}`, { data: input })).status()).toBe(404)
+  for (const changes of [{ completed: true }, { date: '2026-10-02' }]) {
+    expect((await space.api.patch(`/api/entries/${id}`, { data: changes })).status()).toBe(200)
+    expect((await current()).encryptedDescription).toEqual(encryptedDescription)
+  }
+  const { encryptedDescription: _, ...oldInput } = input
+  const before = await space.agenda()
+  expect((await space.api.put(`/api/entries/${id}`, { data: { ...oldInput, description: '旧客户端不得覆盖' } })).status()).toBe(409)
+  expect(await space.agenda()).toEqual(before)
+  const invalid = [false, '', [], {}, { ...encryptedDescription, version: 2 }, { ...encryptedDescription, iv: 'abc' },
+    { ...encryptedDescription, salt: 'A'.repeat(24) }, { ...encryptedDescription, ciphertext: 'A'.repeat(32_028) },
+    { ...encryptedDescription, extra: '拒绝未知格式' }]
+  for (const payload of invalid) {
+    for (const [method, path] of [['POST', '/api/entries'], ['PUT', `/api/entries/${id}`]] as const) {
+      expect((await space.api.fetch(path, { method, data: { ...input, encryptedDescription: payload } })).status()).toBe(400)
+      expect(await space.agenda()).toEqual(before)
+    }
+  }
+  expect((await space.api.put(`/api/entries/${id}`, { data: { ...input, description } })).status()).toBe(400)
+  expect(await space.agenda()).toEqual(before)
+  expect((await space.api.put(`/api/entries/${id}`, { data: { ...input, title: '锁定时改标题' } })).status()).toBe(200)
+  expect((await current()).encryptedDescription).toEqual(encryptedDescription)
+  expect((await space.api.put(`/api/entries/${id}`, { data: { ...input, encryptedDescription: null, description } })).status()).toBe(200)
+  expect(await current()).toMatchObject({ description, references: [target] })
+  expect((await current()).encryptedDescription).toBeUndefined()
+})
 
 test('R2 素材上传、事项复用、私有下载与被引用时拒绝删除', async ({ space, otherSpace }) => {
   const project = await space.project('素材项目')

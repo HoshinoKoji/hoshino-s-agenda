@@ -3,6 +3,13 @@ export const PROJECT_COLORS = ['#8574D8', '#5B9E91', '#D59C58', '#CE7E92', '#6C9
 // Measured in UTF-16 code units (JavaScript string.length).
 export const DESCRIPTION_MAX_LENGTH = 4000
 
+export interface EncryptedDescription {
+  version: 1
+  salt: string
+  iv: string
+  ciphertext: string
+}
+
 export interface Project {
   id: string
   name: string
@@ -17,6 +24,8 @@ export interface Entry {
   date: string | null
   title: string
   description: string
+  // Omitted for plaintext entries. Encrypted entries always have an empty description.
+  encryptedDescription?: EncryptedDescription
   completed: boolean
   references: string[]
   assetIds: string[]
@@ -51,6 +60,8 @@ export interface EntryInput {
   title: string
   // Plain text, preserving whitespace. Omission on POST or PUT becomes an empty string.
   description?: string
+  // Explicit null removes encryption. An encrypted entry cannot be PUT without this field.
+  encryptedDescription?: EncryptedDescription | null
   completed: boolean
   references: string[]
   assetIds?: string[]

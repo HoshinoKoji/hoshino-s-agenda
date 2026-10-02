@@ -8,7 +8,9 @@ const emit = defineEmits<{ edit: [entry: Entry]; export: [entry: Entry]; toggle:
 const projectMap = computed(() => new Map(props.projects.map(project => [project.id, project])))
 const entryMap = computed(() => new Map(props.allEntries.map(entry => [entry.id, entry])))
 const assetMap = computed(() => new Map(props.assets.map(asset => [asset.id, asset])))
-const legacyReferences = computed(() => new Map(props.entries.map(entry => [entry.id, legacyReferenceIds(entry)])))
+const encryption = useEntryEncryption()
+const legacyReferences = computed(() => new Map(props.entries.map(entry => [entry.id,
+  legacyReferenceIds({ ...entry, description: encryption.description(entry) ?? '' })])))
 const backlinks = computed(() => {
   const map = new Map<string, Entry[]>()
   for (const entry of props.allEntries) {

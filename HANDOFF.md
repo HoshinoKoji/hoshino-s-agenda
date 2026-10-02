@@ -1,5 +1,72 @@
 # 项目交接
 
+## 本轮：加密与下载名修复提交交接（2026-10-02）
+
+已编写：
+
+- 按用户「全部提交」要求，本次提交包含可选描述加密、`0006` 迁移、Linux 中文下载名环境修复、相关回归及 README/HANDOFF；具体实现与排查过程见下方两节。
+
+已验证：
+
+- 本次提交前已检查工作区状态、完整差异和最近提交；最新完整回归为 **51 通过、1 正常跳过、0 失败**。类型检查、构建与专项验证结果见下方记录。
+
+待完成 / 边界：
+
+- 未推送或部署，未应用开发库/远程 `0006` 迁移。开发库启动前执行 `bun run db:migrate`；上线前先 `bun run db:migrate:remote`，再 `bun run deploy`。
+
+## 本轮：中文下载文件名的环境定位与修复（2026-10-02）
+
+已编写：
+
+- 根因：容器的 `LANG` / `LC_ALL` / `LC_CTYPE` 均未设置，Chromium 在默认 C locale 下将中文 `download` 属性的文件名回退为 `download`。Playwright 的 `locale: 'zh-CN'` 属于浏览器上下文语言设置，不改变浏览器 Linux 进程的文件名字符编码。
+- `playwright.config.ts` 为 Linux 测试浏览器明确设置 `LANG=C.UTF-8` 和 `LC_ALL=C.UTF-8`，继承其余环境变量；其他平台沿用既有环境。README 记录原因与配置。
+- 扩展既有素材浏览器回归，验证中文事项附件、重命名后的素材文件及弹窗中的图片原图下载：同时断言文件名、下载成功和实际完整文件内容。保留中文文件名断言。
+- 排查期间的 anchor/Blob 诊断代码和临时独立实验脚本已移除。本轮业务下载代码和 API 响应无需修补。
+
+已验证：
+
+- 修复前复现：真实事项下载的 Blob URL、anchor `download="笔记.txt"` 均正确，浏览器建议名称仍为 `download`。将链接加入 DOM、重建 Blob 都无效。
+- 独立实验对比 Chromium 153.0.8010.12 的 Headless Shell 与完整 Chromium headless：3 种 Blob MIME 类型下英文 `note.txt` 正常，中文 `笔记.txt` 都回退；设置 `LANG=C.UTF-8` / `LC_ALL=C.UTF-8` 后两种浏览器的全部 12 项组合均正确。
+- `bun run typecheck:tests`、`git diff --check` 通过。
+- 故意令父进程为 `LANG=C LC_ALL=C LC_CTYPE=C`，应用修复后的配置：桌面/手机素材专项 **2/2 通过**；覆盖以前被下载断言阻挡的后续素材重命名、打印、引用跳转、删除及邮箱切换流程。
+- 相同 C locale 父进程下完整生产模式 `bun run test` **51 通过、1 正常跳过、0 失败**（52 项，约 1.8 分钟），含本轮加密实现；此前两项下载文件名失败已解除。浏览器仍通过加密交接节记录的项目内 `LD_LIBRARY_PATH` / `FONTCONFIG_FILE` 运行库启动，未安装系统包。HTML 报告位于 `playwright-report/`。
+
+待完成 / 边界：
+
+- 本轮修复与加密功能都仍在工作区，尚未提交；未部署。加密功能的开发库/远程 `0006` 迁移要求继续适用。
+- 中文下载问题已确认属于该 Linux 浏览器运行环境；未验证实体手机、Safari/Firefox。重建容器时仍需按 README 提供浏览器系统共享库。
+
+## 本轮：可选的逐事项描述加密（2026-10-02）
+
+已编写：
+
+- 按用户要求，在开始加密实现前提交接手时的全部工作区变更：`72f4d93 chore: pin local runtimes and preflight test environment`。提交前检查 status/diff/log，`git diff --check` 与工具链测试 3/3 通过，提交后工作区干净。
+- 用户确认仅加密描述正文、每个事项使用独立密码。新增 `shared/encryption.ts`：Web Crypto AES-256-GCM / 128-bit 标签、PBKDF2-SHA-256 600,000 次、16-byte 随机盐及每次加密新的 12-byte IV；密钥不可导出。版本 1 固定参数，附加认证数据为 `agenda:description:v1`，正文以 JSON 字符串编码保留 UTF-16（含孤立代理项）、空白、NUL 和 4000 单元边界。
+- 新增 Drizzle JSON `encryptedDescription` 映射及 `0006_encrypted_description.sql`，旧明文保留；数据库约束禁止密文与非空明文共存。API 验证密文结构、规范 Base64、版本及字节边界，GET/POST/PUT 仅在加密时额外返回密文，普通描述为空；明文响应保持兼容。已加密事项 PUT 缺省加密字段返回 409；显式 null 才取消加密。PATCH 日期/状态保留密文，描述/密文、引用、附件关联在原有 batch 内保存。
+- 事项编辑器增加「加密描述」、密码确认、解锁与改密；锁定保存其他字段时保留原密文与引用，修改正文或取消加密前需解锁。日历详情、总览、悬浮预览共用页面内存解锁缓存；卡片可重新锁定，刷新/切换邮箱清除，同密文同步保留，云端密文变化或删除后失效。异步解密校验空间代次、尝试序号及最新密文，避免迟到结果污染新空间。密码/密钥/正文不写入浏览器存储或 API 原始数据。
+- 打印新标签页独立解锁，解锁前禁用打印按钮；打印媒体隐藏密码操作。解锁后恢复 Markdown、描述内引用、长内容展开及独立引用去重。README 补充使用方式、算法、API 协议和 `0006` 迁移要求。
+- 新增 2 项 API/加密测试及 2 项桌面/手机浏览器测试（共 6 个运行用例）：正确/错误密码、篡改、随机盐/IV、最大/特殊正文、输入校验、旧客户端保护、锁定保存及失败重试、确认密码、修改正文/改密/取消加密、独立打印/PDF、共享预览、刷新和浏览器存储、320px、密文更新失效及迟到解密的邮箱隔离。
+
+已验证：
+
+- `bun run test --project=api -g '加密'` **2/2 通过**，真实测试 D1 成功应用 `0006`。
+- `bun run typecheck`、完整 `bun run build`（Nuxt + Worker dry-run）及 `git diff --check` 通过。
+- 桌面/手机加密专项 **4/4 通过**；首轮仅两个测试定位/输入问题（描述名称包含「可选」、测试错误密码不足 8 单元），修正测试后复验通过。已查看手机锁定和 320px 解锁截图，布局与正文显示正常。
+- 完整生产模式 `bun run test`：**49 通过、2 失败、1 正常跳过**（52 项，约 1.7 分钟），新增加密及全部 API/mentions/部署路由均通过。两个失败仍为既有素材下载文件名断言（现位于 `tests/web.spec.ts:260`，desktop/mobile）：期望 `笔记.txt`，实际 `download`，与上轮记录一致。损坏图片的缩略图错误日志为预期负向回归。
+- 当前环境默认 Chromium 仍缺系统共享库。本轮从 Debian bookworm 官方源下载运行库与 CJK/英文字体，仅解包至忽略目录 `.wrangler/browser-runtime/`，未安装系统包。使用以下环境变量，`doctor` 和以上所有浏览器回归均启动成功：
+
+  ```sh
+  LD_LIBRARY_PATH="$PWD/.wrangler/browser-runtime/root/usr/lib/x86_64-linux-gnu:$PWD/.wrangler/browser-runtime/root/lib/x86_64-linux-gnu" \
+  FONTCONFIG_FILE="$PWD/.wrangler/browser-runtime/fonts.conf" \
+  bun run test
+  ```
+
+待完成 / 边界：
+
+- 本轮加密实现尚未提交，未应用开发库或远程数据库迁移、未部署。开发库启动前执行 `bun run db:migrate`；上线前 `bun run db:migrate:remote`（至 `0006`），再 `bun run deploy`。
+- 原有附件下载文件名问题仍待排查，该素材测试后续步骤本轮仍因断言提前退出；具体 trace 与截图位于 `test-results/web-素材库上传、事项引用与上传附件、图片预览和打印-{desktop,mobile}/`。完整 HTML 报告位于 `playwright-report/`。
+- 加密只保护描述正文，标题、项目、日期、状态、时间、引用关系和附件仍可见，邮箱仍只是空间选择；忘记独立密码无法恢复。Web Crypto 要求 HTTPS / localhost；未验证 Safari/Firefox、实体手机或远程部署。临时浏览器运行库仅用于本容器验证，重建环境仍建议按 README 补齐系统依赖。
+
 ## 本轮：系统库补齐后完整测试（2026-09-28）
 
 已编写：

@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { check, foreignKey, index, integer, primaryKey, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core'
+import type { EncryptedDescription } from '../../../../shared/types'
 
 export const accounts = sqliteTable('accounts', {
   email: text('email').primaryKey(),
@@ -26,6 +27,7 @@ export const entries = sqliteTable('entries', {
   date: text('date'),
   title: text('title').notNull(),
   description: text('description').notNull().default(''),
+  encryptedDescription: text('encrypted_description', { mode: 'json' }).$type<EncryptedDescription>(),
   completed: integer('completed', { mode: 'boolean' }).notNull().default(false),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
@@ -36,6 +38,7 @@ export const entries = sqliteTable('entries', {
   index('entries_project').on(table.projectId),
   check('entries_title_length', sql`length(${table.title}) BETWEEN 1 AND 200`),
   check('entries_completed_boolean', sql`${table.completed} IN (0, 1)`),
+  check('entries_encrypted_description', sql`${table.encryptedDescription} IS NULL OR (${table.description} = '' AND json_valid(${table.encryptedDescription}))`),
 ])
 
 export const entryReferences = sqliteTable('entry_references', {
