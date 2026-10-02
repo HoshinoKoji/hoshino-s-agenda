@@ -1,7 +1,10 @@
 export const PROJECT_COLORS = ['#8574D8', '#5B9E91', '#D59C58', '#CE7E92', '#6C99CB', '#969A64'] as const
 
 // Measured in UTF-16 code units (JavaScript string.length).
-export const DESCRIPTION_MAX_LENGTH = 4000
+export const DESCRIPTION_MAX_LENGTH = 20_000
+
+// Includes escaped descriptions, Base64 ciphertext and other JSON fields.
+export const JSON_BODY_MAX_BYTES = 256 * 1024
 
 export interface EncryptedDescription {
   version: 1

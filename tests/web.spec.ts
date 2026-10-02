@@ -4,6 +4,7 @@ import { test, expect } from './fixtures'
 import { serializeMention } from '../shared/mentions'
 import { samplePng } from './image'
 import { decryptDescription, encryptDescription } from '../shared/encryption'
+import { DESCRIPTION_MAX_LENGTH } from '../shared/types'
 
 test('可选描述加密、锁定编辑、解锁共享、改密、取消加密与独立打印', async ({ page, space, isMobile }, testInfo) => {
   test.setTimeout(90_000)
@@ -11,7 +12,7 @@ test('可选描述加密、锁定编辑、解锁共享、改密、取消加密�
   const project = await space.project('加密事项项目')
   const target = await space.entry(project.id, '正文引用目标', null)
   const legacy = await space.entry(project.id, '独立引用目标', null)
-  const text = `**只在解锁后出现的正文**\n\n${serializeMention({ id: target, title: '正文引用目标' })}\n${'长描述用于验证折叠和展开。\n'.repeat(10)}`
+  const text = `**只在解锁后出现的正文**\n\n${serializeMention({ id: target, title: '正文引用目标' })}\n${'长描述用于验证折叠和展开。\n'.repeat(1500)}`.slice(0, DESCRIPTION_MAX_LENGTH)
   const id = await space.entry(project.id, '可选加密事项', '2026-09-13', [target, legacy], text)
   const password = '独立加密密码123'
   const newPassword = '新独立密码456'
@@ -33,6 +34,7 @@ test('可选描述加密、锁定编辑、解锁共享、改密、取消加密�
   await dialog.getByRole('button', { name: '保存', exact: true }).click()
   await expect(dialog).toBeHidden()
   const original = (await current()).encryptedDescription!
+  expect(JSON.stringify(original).length).toBeGreaterThan(65_536)
   expect((await current()).description).toBe('')
   expect((await current()).references.sort()).toEqual([target, legacy].sort())
   expect((await decryptDescription(original, password)).description).toBe(text)
@@ -447,7 +449,8 @@ test('单事项卡片与编辑弹窗打开独立打印页', async ({ page, space
   const project = await space.project('打印项目')
   const other = await space.project('其他项目')
   const referenced = await space.entry(other.id, '引用目标', null)
-  const description = `**完整描述**\n\n${'较长的正文用于检查打印分页。'.repeat(80)}\n\n${serializeMention({ id: referenced, title: '引用目标' })}`
+  const body = '较长的正文用于检查打印分页。'.repeat(1000)
+  const description = `**完整描述**\n\n${body}\n\n${serializeMention({ id: referenced, title: '引用目标' })}`
   const id = await space.entry(project.id, '打印事项', '2026-09-13', [referenced], description)
   await space.entry(other.id, '别的事项', '2026-09-13', [id])
   expect((await space.api.patch(`/api/entries/${id}`, { data: { completed: true } })).ok()).toBe(true)
@@ -467,7 +470,7 @@ test('单事项卡片与编辑弹窗打开独立打印页', async ({ page, space
   await expect(sheet.locator('.entry-description strong')).toHaveText('完整描述')
   await expect(sheet.locator('.entry-mention')).toHaveText('@引用目标')
   await expect(sheet).toContainText('@别的事项')
-  await expect(sheet.locator('.entry-description')).toContainText('较长的正文用于检查打印分页。'.repeat(80))
+  await expect(sheet.locator('.entry-description')).toContainText(body)
   await noOverflow(printPage)
   await printPage.screenshot({ path: testInfo.outputPath('entry-print.png'), fullPage: true, animations: 'disabled' })
   await printPage.emulateMedia({ media: 'print' })
@@ -1472,8 +1475,8 @@ test('长描述详情不溢出，桌面 tooltip 悬停/键盘聚焦及 viewport 
   await page.clock.setFixedTime(new Date('2026-09-13T04:00:00Z'))
   const project = await space.project('长内容项目')
   const target = await space.entry(project.id, '引用目标', '2026-10-02')
-  const description = `${serializeMention({ id: target, title: '引用目标' })}\n${'超长无空格文本'.repeat(160)}\n${'多行内容\n'.repeat(100)}`
-  await space.entry(project.id, '长描述事项', '2026-09-13', [target], description)
+  const description = `${serializeMention({ id: target, title: '引用目标' })}\n${'超长无空格文本'.repeat(1800)}\n${'多行内容\n'.repeat(1800)}`.slice(0, DESCRIPTION_MAX_LENGTH)
+  const id = await space.entry(project.id, '长描述事项', '2026-09-13', [target], description)
   await enter(page, space.email)
   await expect(page.locator('.entry-card .entry-description')).toContainText('多行内容')
   const detail = page.locator('.entry-card .entry-description')
@@ -1491,6 +1494,10 @@ test('长描述详情不溢出，桌面 tooltip 悬停/键盘聚焦及 viewport 
   await page.getByRole('button', { name: '编辑事项 长描述事项', exact: true }).click()
   const editor = page.getByRole('textbox', { name: '描述' })
   await expect(editor).toHaveValue(description)
+  await expect(editor).toHaveAttribute('maxlength', String(DESCRIPTION_MAX_LENGTH))
+  await expect(page.locator('.description-help')).toContainText(`${DESCRIPTION_MAX_LENGTH} / ${DESCRIPTION_MAX_LENGTH}`)
+  await editor.press('x')
+  await expect(editor).toHaveValue(description)
   await expect.poll(() => editor.evaluate(element => element.scrollHeight <= element.clientHeight + 1)).toBe(true)
   const dialogScroll = page.locator('.dialog-inner')
   expect(await dialogScroll.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true)
@@ -1500,6 +1507,14 @@ test('长描述详情不溢出，桌面 tooltip 悬停/键盘聚焦及 viewport 
   await page.mouse.move(editorBounds!.x + 20, Math.max(editorBounds!.y + 20, 0))
   await page.mouse.wheel(0, 400)
   await expect.poll(() => dialogScroll.evaluate(element => element.scrollTop)).toBeGreaterThan(0)
+  const editedDescription = description.slice(0, -1) + '改'
+  await editor.fill(editedDescription)
+  await page.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(editor).toBeHidden()
+  expect((await space.agenda()).entries.find(entry => entry.id === id)?.description).toBe(editedDescription)
+  await page.reload()
+  await page.getByRole('button', { name: '编辑事项 长描述事项', exact: true }).click()
+  await expect(editor).toHaveValue(editedDescription)
   await editor.fill('缩短描述')
   await expect.poll(() => editor.evaluate(element => element.clientHeight < 200)).toBe(true)
   await page.getByRole('button', { name: '关闭弹窗' }).click()

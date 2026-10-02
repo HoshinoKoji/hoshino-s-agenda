@@ -1,12 +1,17 @@
 import { DESCRIPTION_MAX_LENGTH, type EncryptedDescription } from './types'
 
 const ITERATIONS = 600_000
-const MAX_CIPHERTEXT_BYTES = DESCRIPTION_MAX_LENGTH * 6 + 2 + 16
+export const MAX_CIPHERTEXT_BYTES = DESCRIPTION_MAX_LENGTH * 6 + 2 + 16
 const encoder = new TextEncoder()
 const additionalData = encoder.encode('agenda:description:v1')
 
 function encode(bytes: Uint8Array): string {
-  return btoa(String.fromCharCode(...bytes))
+  const chunks: string[] = []
+  // Keep each call below argument-count limits even for fully escaped descriptions.
+  for (let offset = 0; offset < bytes.length; offset += 32_768) {
+    chunks.push(String.fromCharCode(...bytes.subarray(offset, offset + 32_768)))
+  }
+  return btoa(chunks.join(''))
 }
 
 function decode(value: string): Uint8Array<ArrayBuffer> {
@@ -14,10 +19,12 @@ function decode(value: string): Uint8Array<ArrayBuffer> {
 }
 
 function base64(value: unknown, min: number, max = min): value is string {
-  if (typeof value !== 'string' || value.length > Math.ceil(max / 3) * 4 ||
-    !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) return false
-  const bytes = decode(value)
-  return bytes.length >= min && bytes.length <= max && encode(bytes) === value
+  if (typeof value !== 'string' || value.length % 4 !== 0 || value.length > Math.ceil(max / 3) * 4) return false
+  try {
+    const bytes = decode(value)
+    // Re-encoding also rejects whitespace, missing padding and nonzero padding bits.
+    return bytes.length >= min && bytes.length <= max && encode(bytes) === value
+  } catch { return false }
 }
 
 /** Version 1 fixes the algorithm and KDF cost; callers cannot supply arbitrary iterations. */

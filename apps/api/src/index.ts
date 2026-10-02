@@ -1,5 +1,5 @@
 import { and, count, eq, inArray, max } from 'drizzle-orm'
-import { DESCRIPTION_MAX_LENGTH, type AgendaData, type Asset, type EncryptedDescription, type EntryInput, type ProjectInput } from '../../../shared/types'
+import { DESCRIPTION_MAX_LENGTH, JSON_BODY_MAX_BYTES, type AgendaData, type Asset, type EncryptedDescription, type EntryInput, type ProjectInput } from '../../../shared/types'
 import { isEncryptedDescription } from '../../../shared/encryption'
 import { createDb, type Database } from './db'
 import { accounts, assetDeletions, assets, entries, entryAssets, entryReferences, projects } from './db/schema'
@@ -96,8 +96,8 @@ async function body(request: Request): Promise<Record<string, unknown>> {
     const { done, value } = await reader.read()
     if (done) break
     size += value.byteLength
-    // Allow JSON escaping of the description plus up to 50 reference IDs.
-    if (size > 65_536) {
+    // Allow worst-case description escaping or Base64 ciphertext plus references and attachments.
+    if (size > JSON_BODY_MAX_BYTES) {
       await reader.cancel()
       fail(413, '请求内容过大')
     }
