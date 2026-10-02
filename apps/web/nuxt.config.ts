@@ -7,7 +7,7 @@ export default defineNuxtConfig({
   css: ['~/assets/main.css'],
   nitro: {
     devProxy: {
-      '/api': { target: 'http://127.0.0.1:8787/api', changeOrigin: true },
+      '/api': { target: `http://127.0.0.1:${process.env.AGENDA_TEST_PORT || 8787}/api`, changeOrigin: true },
     },
   },
   app: {

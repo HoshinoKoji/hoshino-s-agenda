@@ -1,5 +1,6 @@
 import { test as base, expect, type APIRequestContext, type PlaywrightWorkerArgs } from '@playwright/test'
 import { PROJECT_COLORS, type AgendaData, type EntryInput, type Project } from '../shared/types'
+import { apiURL } from './environment'
 
 export class Space {
   constructor(readonly email: string, readonly api: APIRequestContext) {}
@@ -28,7 +29,7 @@ export class Space {
 
 async function withSpace(playwright: PlaywrightWorkerArgs['playwright'], use: (space: Space) => Promise<void>) {
   const email = `test-${crypto.randomUUID()}@example.com`
-  const api = await playwright.request.newContext({ baseURL: 'http://127.0.0.1:8787', extraHTTPHeaders: { 'X-User-Email': email } })
+  const api = await playwright.request.newContext({ baseURL: apiURL, extraHTTPHeaders: { 'X-User-Email': email } })
   const space = new Space(email, api)
   try { await use(space) }
   finally {

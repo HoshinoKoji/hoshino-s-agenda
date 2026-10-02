@@ -1,6 +1,7 @@
 import { test, expect } from './fixtures'
 import { PROJECT_COLORS } from '../shared/types'
 import { samplePng } from './image'
+import { apiURL } from './environment'
 
 test('R2 素材上传、事项复用、私有下载与被引用时拒绝删除', async ({ space, otherSpace }) => {
   const project = await space.project('素材项目')
@@ -140,7 +141,7 @@ test('邮箱归一化与读写隔离，拒绝无效引用且保留原记录', as
   const first = await space.entry(project.id, '自己的事项', '2026-09-13')
   const foreignProject = await otherSpace.project('另一空间')
   const foreignEntry = await otherSpace.entry(foreignProject.id, '另一空间事项', '2026-09-15')
-  const normalized = await request.get('http://127.0.0.1:8787/api/agenda', { headers: { 'X-User-Email': `  ${space.email.toUpperCase()}  ` } })
+  const normalized = await request.get(`${apiURL}/api/agenda`, { headers: { 'X-User-Email': `  ${space.email.toUpperCase()}  ` } })
   expect(await normalized.json()).toEqual(await space.agenda())
   expect((await otherSpace.agenda()).entries.map(entry => entry.id)).toEqual([foreignEntry])
 
@@ -175,7 +176,7 @@ test('邮箱归一化与读写隔离，拒绝无效引用且保留原记录', as
   expect((await space.api.post('/api/projects', { data: 'not json', headers: { 'Content-Type': 'application/json' } })).status()).toBe(400)
   expect((await space.api.post('/api/projects', { data: 'text' })).status()).toBe(415)
   expect((await space.api.post('/api/projects', { data: { name: 'x'.repeat(65_536) } })).status()).toBe(413)
-  expect((await request.get('http://127.0.0.1:8787/api/agenda')).status()).toBe(400)
+  expect((await request.get(`${apiURL}/api/agenda`)).status()).toBe(400)
 })
 
 test('无日期事项往返、补充与清除日期、引用及隔离', async ({ space, otherSpace }) => {
@@ -309,7 +310,7 @@ test('请求体按实际 UTF-8 字节限制到 64KiB（含无 Content-Length 的
     expect(Buffer.byteLength(data)).toBe(size)
     for (const streamed of [false, true]) {
       const response = streamed
-        ? await fetch(`http://127.0.0.1:8787/api/entries/${source}`, {
+        ? await fetch(`${apiURL}/api/entries/${source}`, {
             method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-User-Email': space.email },
             body: new ReadableStream({ start(controller) {
               const bytes = new TextEncoder().encode(data)
@@ -327,7 +328,7 @@ test('请求体按实际 UTF-8 字节限制到 64KiB（含无 Content-Length 的
 })
 
 test('同源请求可预检及读写，未允许的跨域来源被拒绝', async ({ space }) => {
-  const origin = 'http://127.0.0.1:8787'
+  const origin = apiURL
   const response = await space.api.fetch('/api/agenda', { method: 'OPTIONS', headers: { Origin: origin, 'Access-Control-Request-Headers': 'x-user-email,content-type' } })
   expect(response.status()).toBe(204)
   expect(response.headers()['access-control-allow-origin']).toBe(origin)

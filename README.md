@@ -6,15 +6,19 @@
 
 ## 本地启动
 
-使用根 `package.json` 指定的 **Bun 1.3.14** 管理依赖，另需 **Node.js 22.12+** 运行工具链。以下命令均在项目根目录执行。
+工具链版本由仓库管理：**Bun 1.3.14**、Linux x64 / arm64 的 **Node.js 22.23.3** 都作为依赖安装到 `node_modules`，版本及完整性由 `bun.lock` 固定。容器只需提供可用于首次安装的 Bun、网络及系统库；无需全局安装 Node.js 或 npm。以下命令均在项目根目录执行。
 
 ```sh
 bun install --frozen-lockfile
+bun run bun --version
+bun run node --version
 bun run db:migrate
 bun run dev
 ```
 
 打开 <http://localhost:3000>。前端为 Nuxt SPA，浏览器通过同源 `/api/*` 请求数据；Nuxt 开发服务器将这些请求代理到本地 Worker（8787）。访问 <http://localhost:3000/api/health> 返回 `{"ok":true}` 表示代理及 Worker 已启动，数据库是否可用由实际数据请求确认。
+
+`bun run` 会优先使用仓库 `node_modules/.bin` 内的工具，根脚本和 workspace 子进程均使用本地 Node.js / Bun；容器全局的 `bun --version` 可以不同。依赖安装后需要用固定版本重装时执行 `bun run bun install --frozen-lockfile`。不要从其他机器复制 `node_modules`，应在目标环境重新安装。Linux Node 二进制面向 glibc 环境；其他平台目前仍需自行提供 Node.js 22.12+。
 
 - `db:migrate` 初始化本地 D1；开发数据保存在 `apps/api/.wrangler/state/`。
 - Wrangler 开发模式提供本地 R2 模拟，无需先创建远程桶；本地素材与远程桶互不影响。
@@ -56,15 +60,22 @@ bun run dev
 bun run typecheck
 bun run build
 bun run test:install
+bun run doctor
+bun run test:toolchain
 bun run test
 ```
 
 - `typecheck` 检查 Web、API、Playwright 配置及测试代码。
 - `build` 生成静态前端 `apps/web/.output/public/`，再执行包含静态资源的 Worker `wrangler deploy --dry-run`，不会上传远程资源。
-- `test:install` 下载 Chromium 到项目的 `node_modules` 内。Linux 若缺少浏览器系统库，根据 Playwright 提示安装对应系统依赖后再运行。
+- `test:install` 下载与锁定的 Playwright 版本匹配的 Chromium 到项目的 `node_modules` 内。重建 `node_modules` 后需重新执行。
+- `test:deps` 使用当前 Playwright 自带的依赖清单安装 Linux 浏览器系统库及字体，需要 root / sudo；无权限时由容器镜像构建阶段执行。系统共享库是容器提供的基础能力，Node.js / Bun / Playwright / 浏览器版本由仓库控制。
+- `doctor` 检查实际使用的 Node.js / Bun 版本，并尝试在 10 秒内启动 Chromium；缺少二进制或系统库会明确报错。
+- `test:toolchain` 验证无响应服务占用端口时快速失败、非法端口拒绝及测试参数透传。
 - `test` 是 Playwright 测试运行器；请使用 `bun run test`，而非 Bun 内置的 `bun test`。
 
-测试会自动生成前端、启动 8787 上的单 Worker（静态资源 + API + 本地 R2），并迁移独立的 `.wrangler/test-state/` 数据库。运行前先停止占用 8787 的开发服务；测试配置不会复用已有服务。每个测试使用随机邮箱，结束后删除其项目、关联事项及素材。若要验证 Nuxt 热更新开发模式，使用 `AGENDA_TEST_DEV=1 bun run test`，该模式需要 3000/8787 均空闲。
+测试会先验证运行时、端口（单次端口检查最多 2 秒）及 Chromium 启动能力（仅 `--project=api` 时跳过），再生成前端、启动默认 8787 上的单 Worker（静态资源 + API + 本地 R2），并迁移独立的 `.wrangler/test-state/` 数据库。端口已占用时立即报错，不等待该服务的 HTTP 响应，也不会复用或终止它；可通过 `AGENDA_TEST_PORT=18787 bun run test` 使用其他端口，API fixture 与浏览器会同步切换。构建及服务启动输出可见，生产模式启动上限 3 分钟、Playwright 全局上限 5 分钟（不含入口预检）；测试默认使用文件轮询，并在退出时向服务发送 SIGTERM 清理。每个测试使用随机邮箱，结束后删除其项目、关联事项及素材。
+
+若要验证 Nuxt 热更新开发模式，使用 `AGENDA_TEST_DEV=1 bun run test`，该模式需要 3000 及 Worker 测试端口均空闲，也支持 `AGENDA_TEST_PORT`。不同测试进程共用测试数据目录，请串行运行。
 
 ```sh
 # 仅验证 API，无需安装浏览器

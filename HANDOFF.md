@@ -1,5 +1,81 @@
 # 项目交接
 
+## 本轮：系统库补齐后完整测试（2026-09-28）
+
+已编写：
+
+- 仅更新交接记录。
+
+已验证：
+
+- `bun run doctor && bun run test` 已实际跑完。Node.js 22.23.3 / Bun 1.3.14，Chromium 启动预检通过；此前系统库阻塞已解除。
+- 默认 8787 生产模式完整回归 **43 通过、2 失败、1 跳过**（46 项，约 1.4 分钟）。包含 Nuxt 生产生成及真实本地 Worker/D1/R2/Images；API / 部署路由 / mentions 全部通过。跳过项为仅适用手机的周视图长标题用例在 desktop project 下正常跳过。
+- 两个失败均为 `tests/web.spec.ts:51` 的附件下载文件名断言（desktop / mobile）：期望 `笔记.txt`，`suggestedFilename()` 实际为 `download`。已检查 `AssetAttachments.vue`：通过 Blob URL 和 `link.download = asset.name` 触发下载，尚未确定文件名丢失根因。
+- 当前完整报告在 `playwright-report/`，两端失败截图及 trace 在 `test-results/web-素材库上传、事项引用与上传附件、图片预览和打印-{desktop,mobile}/`。
+
+待完成 / 边界：
+
+- 排查两端附件下载文件名问题，并验证该用例中下载断言之后的素材流程；本轮没有修改业务实现或测试断言。
+
+## 本轮：手动补装系统库后复检（2026-09-28）
+
+已编写：
+
+- 仅更新交接记录。
+
+已验证：
+
+- 执行 `bun run doctor && bun run test`，运行时仍为 Node.js 22.23.3 / Bun 1.3.14；Chromium 预检快速退出，错误已从 `libglib-2.0.so.0` 变为缺少 `libnspr4.so`，因此没有启动完整测试。
+- 对项目内 Chromium 执行 `ldd`，仍有 21 项共享库未找到，包括 NSPR/NSS、ATK/AT-SPI、D-Bus、CUPS、X11/XCB、xkbcommon、ALSA、GBM、Cairo/Pango。
+
+待完成 / 阻塞：
+
+- 浏览器系统依赖尚未补齐。需在当前容器中以有系统安装权限的用户执行 `bun run test:deps`（Playwright 完整依赖清单），然后重新执行 `bun run doctor && bun run test`。
+
+## 本轮：仓库管理运行时与测试启动预检（2026-09-28）
+
+已编写：
+
+- 根依赖固定 `bun@1.3.14` 和 Linux x64 / arm64 的 `node-linux-*@22.23.3`；Bun 安装脚本加入信任列表。运行时随依赖安装，`bun run` 与 workspace 子进程优先使用本地工具，无需容器全局 Node.js / npm。锁文件只新增工具链依赖，保留接手时已存在的 `tsx` 删除差异。
+- 新增 `bun run doctor`：检查实际 Node / Bun 版本，并尝试在 10 秒内启动 Chromium。`test:deps` 使用锁定的 Playwright 自带清单安装系统库，`test:install` 继续将匹配的 Chromium 安装在项目内。
+- `bun run test` 新入口在启动前检查运行时、TCP 端口与浏览器能力；端口检查最多 2 秒，既有服务即使不响应 HTTP 也快速失败。仅运行 API 时跳过浏览器检查；`--list` / `--help` 不启动服务。新增 3 项入口回归。
+- Playwright 保留服务启动时限，增加 5 分钟全局时限、可见构建输出与 SIGTERM 服务清理。新增 `AGENDA_TEST_PORT`，统一 Worker、API fixture、浏览器和开发模式 Nuxt 代理端口；默认仍为 8787。
+- README 记录安装、检查、测试与系统库职责；Linux glibc x64 / arm64 提供仓库内 Node，其他平台仍需外部 Node.js 22.12+。
+
+已验证：
+
+- 根目录与 API/Web workspace 的 `bun run node --version` 均为 22.23.3，`bun run bun --version` 为 1.3.14；`bun run bun install --frozen-lockfile` 通过，无依赖变更。
+- 使用容器 bootstrap Bun 执行 `bun install --frozen-lockfile --force` 重装 758 个包成功，随后重新执行 `bun run test:install` 下载 Chromium 成功。不要用项目内正在执行的 Bun 强制覆盖自身（尝试时会报 `FileBusy`）；普通冻结安装正常。
+- `bun run test:toolchain` **3/3 通过**，包括无响应服务占用端口时约 30ms 退出；`bun run typecheck`、完整 `bun run build`（Nuxt + Worker dry-run）与 `git diff --check` 通过。
+- 生产模式 API / 部署路由 / mentions **16/16 通过**，默认 8787 与自定义 18787 均有通过记录；包含真实本地 D1/R2/Images。损坏图片的缩略图错误为预期负向用例。
+- `AGENDA_TEST_DEV=1 AGENDA_TEST_PORT=18787 bun run test --project=api -g '同一入口|同源请求'` **2/2 通过**，验证 Nuxt 3000 → 自定义 Worker 端口代理。
+- 新增浏览器预检后，`AGENDA_TEST_PORT=18787 bun run test` 会立即报告缺失 `libglib-2.0.so.0` 并退出，不再逐个启动全部浏览器用例或停留等待。
+
+待完成 / 阻塞：
+
+- 当前容器缺少 Chromium 系统共享库和字体。`bun run playwright install-deps chromium --dry-run` 列出 99 个缺失包；当前用户 uid 1000，且没有 sudo。需由具备系统安装权限的容器构建/维护步骤执行 `bun run test:deps`，之后执行 `bun run doctor` 和完整 `bun run test`。本轮未安装系统级包。
+- 完整回归尝试：强制重装后第一轮因浏览器文件被重装清除而失败；重新下载后为 **16 通过、30 浏览器启动失败**，明确错误为缺少系统库，尚未验证 UI 行为。当前 HTML 报告为最后的开发代理专项结果。
+- Linux arm64 依赖已声明但未实机验证；未执行远程迁移或部署。
+
+## 本轮：容器依赖与测试环境检查（2026-09-28）
+
+已编写 / 环境检查：
+
+- 仅更新本交接；接手时 `bun.lock` 已有删除 `tsx` 条目的差异，本轮未修改该差异。
+- 容器默认 Bun 为 1.4.2，项目声明为 1.3.14；通过 `bunx --package bun@1.3.14` 调用指定版本。默认 `node` 指向 Bun 兼容入口，`node --version` 不能正常返回 Node.js 版本。
+
+已验证：
+
+- 指定 Bun 1.3.14 执行 `bun install --frozen-lockfile` 成功，检查 758 installs / 902 packages，无依赖变更。
+- `bun run typecheck`（Web、API、测试）与 `bun run test:install` 成功。
+- 单独使用真实 Node.js 22.23.3 在 8797 启动 Wrangler，出现 Ready，`/api/health` 返回 200 / `{"ok":true}`。
+
+待完成 / 阻塞：
+
+- 两次全量测试均卡住并由用户中止，未取得任何本轮测试用例通过结果。首次停在 Wrangler 启动后，第二次仅输出 Playwright 启动命令。
+- 中止后的短超时检查：8787 健康请求 2 秒超时，8797 返回 503，说明残留端口服务仍需排查、清理。容器缺少 `ps`、`pkill`、`ss`、`lsof` 等诊断工具。
+- 真实 Node.js 下单独启动成功，不代表整条测试调用链已修复。建议容器提供真实 Node.js 22、按项目固定 Bun 1.3.14，清理残留测试进程后先验证测试端口与实际子进程运行时，再运行完整套件。完整测试及独立 build 尚未验证。
+
 ## 本轮：素材卡片操作栏固定底部（2026-09-26）
 
 已编写：

@@ -11,14 +11,23 @@
     "typecheck:tests": "tsc --project tsconfig.tests.json",
     "build": "bun run --filter @agenda/web generate && bun run --filter @agenda/api build",
     "preview": "bun run --filter @agenda/api preview",
-    "test": "PLAYWRIGHT_BROWSERS_PATH=0 playwright test",
+    "doctor": "node scripts/doctor.mjs",
+    "test": "node scripts/test.mjs",
+    "test:toolchain": "node --test scripts/test.test.mjs",
     "test:install": "PLAYWRIGHT_BROWSERS_PATH=0 playwright install chromium",
+    "test:deps": "playwright install-deps chromium",
     "deploy": "bun run --filter @agenda/web generate && bun run --filter @agenda/api deploy",
     "deploy:api": "bun run deploy"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0",
     "@types/node": "^26.5.1",
+    "bun": "1.3.14",
     "typescript": "^5.9.2"
-  }
+  },
+  "optionalDependencies": {
+    "node-linux-arm64": "22.23.3",
+    "node-linux-x64": "22.23.3"
+  },
+  "trustedDependencies": ["bun"]
 }
