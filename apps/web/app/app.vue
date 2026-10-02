@@ -2,6 +2,7 @@
 import { zh_cn } from '@nuxt/ui/locale'
 import type { Entry, EntryInput, EntrySaveResult, Project } from '../../../shared/types'
 import { dateKey, formatDate, parseDate, startOfWeek } from '~/utils/dates'
+import { matchesOverviewDateFilter, type OverviewDateFilter } from '~/utils/overviewDates'
 
 const email = ref('')
 const hydrated = ref(false)
@@ -11,6 +12,7 @@ const selected = ref(today.value)
 const view = ref<'month' | 'week' | 'day'>('month')
 const workspaceView = ref<'calendar' | 'overview' | 'assets'>('calendar')
 const showCompletedProjects = ref(false)
+const overviewDateFilter = ref<OverviewDateFilter>({ type: 'all' })
 const month = ref(new Date(new Date().getFullYear(), new Date().getMonth(), 1, 12))
 const activeProject = ref('')
 const showAccount = ref(false)
@@ -53,6 +55,7 @@ function enterAccount(value: string) {
   email.value = normalized
   activeProject.value = ''
   showCompletedProjects.value = false
+  overviewDateFilter.value = { type: 'all' }
   showAccount.value = false
   showProjectOrder.value = false
   try { localStorage.setItem('agenda:email', normalized) } catch { /* Continue without remembering the email. */ }
@@ -122,15 +125,19 @@ function exportEntry(entry: Entry) {
 }
 async function submitEntry(input: EntryInput, id?: string, onSaved?: (result: EntrySaveResult) => void) {
   const saved = await saveEntry(input, id, onSaved)
-  if (saved && input.date === null) workspaceView.value = 'overview'
+  if (saved && input.date === null) {
+    if (overviewDateFilter.value.type === 'range') overviewDateFilter.value = { type: 'all' }
+    workspaceView.value = 'overview'
+  }
 }
 function followReference(entry: Entry | undefined) {
   if (!entry) return
   if (activeProject.value && activeProject.value !== entry.projectId) activeProject.value = ''
   if (entry.date === null || workspaceView.value === 'assets') workspaceView.value = 'overview'
   else if (workspaceView.value === 'calendar') selectDate(entry.date)
-  if (workspaceView.value === 'overview' && entry.completed) {
-    showCompletedProjects.value = true
+  if (workspaceView.value === 'overview') {
+    if (!matchesOverviewDateFilter(entry.date, overviewDateFilter.value)) overviewDateFilter.value = { type: 'all' }
+    if (entry.completed) showCompletedProjects.value = true
   }
   nextTick(() => {
     const target = document.getElementById(`entry-${entry.id}`)
@@ -164,7 +171,7 @@ function followReference(entry: Entry | undefined) {
         <div v-if="error" class="error-banner" role="alert"><span>{{ error }}</span><button class="text-button" :disabled="loading || saving" @click="refresh">重试</button></div>
 
         <AssetLibrary v-if="workspaceView === 'assets'" :assets="data.assets" :entries="data.entries" :projects="data.projects" :email="email" :loading="loading" :busy="loading || saving" :upload="uploadAsset" :remove="deleteAsset" :rename="renameAsset" @follow="followReference" />
-        <ProjectOverview v-else-if="workspaceView === 'overview'" v-model:show-completed="showCompletedProjects" :projects="data.projects" :entries="data.entries" :assets="data.assets" :email="email" :active-project="activeProject" :busy="loading || saving" :loading="loading" @add="addEntry(null, $event)" @create-project="projectEditor = {}" @edit-project="projectEditor = { project: $event }" @edit="editEntry" @export="exportEntry" @toggle="toggleEntry" @follow="followReference" />
+        <ProjectOverview v-else-if="workspaceView === 'overview'" v-model:show-completed="showCompletedProjects" v-model:date-filter="overviewDateFilter" :projects="data.projects" :entries="data.entries" :assets="data.assets" :email="email" :active-project="activeProject" :busy="loading || saving" :loading="loading" @add="addEntry(null, $event)" @create-project="projectEditor = {}" @edit-project="projectEditor = { project: $event }" @edit="editEntry" @export="exportEntry" @toggle="toggleEntry" @follow="followReference" />
         <template v-else>
         <section class="calendar-card" :aria-busy="loading">
           <header class="calendar-toolbar">
