@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { zh_cn } from '@nuxt/ui/locale'
-import type { Entry, EntryInput, Project } from '../../../shared/types'
+import type { Entry, EntryInput, EntrySaveResult, Project } from '../../../shared/types'
 import { dateKey, formatDate, parseDate, startOfWeek } from '~/utils/dates'
 
 const email = ref('')
@@ -120,9 +120,9 @@ function exportEntry(entry: Entry) {
   const token = printUnlock.prepareExport(entry)
   window.open(`/?printEntry=${encodeURIComponent(entry.id)}${token ? `#printUnlock=${token}` : ''}`, '_blank', 'noopener')
 }
-async function submitEntry(input: EntryInput, id?: string) {
-  await saveEntry(input, id)
-  if (input.date === null) workspaceView.value = 'overview'
+async function submitEntry(input: EntryInput, id?: string, onSaved?: (result: EntrySaveResult) => void) {
+  const saved = await saveEntry(input, id, onSaved)
+  if (saved && input.date === null) workspaceView.value = 'overview'
 }
 function followReference(entry: Entry | undefined) {
   if (!entry) return

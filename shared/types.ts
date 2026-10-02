@@ -36,6 +36,8 @@ export interface Entry {
   updatedAt: string
 }
 
+export type EntrySaveResult = Pick<Entry, 'id' | 'description' | 'encryptedDescription'>
+
 export interface AgendaData {
   projects: Project[]
   entries: Entry[]

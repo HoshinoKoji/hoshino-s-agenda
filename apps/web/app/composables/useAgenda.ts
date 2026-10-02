@@ -1,4 +1,4 @@
-import type { AgendaData, Asset, Entry, EntryInput, ProjectInput } from '../../../../shared/types'
+import type { AgendaData, Asset, Entry, EntryInput, EntrySaveResult, ProjectInput } from '../../../../shared/types'
 
 export function useAgenda(email: Ref<string>) {
   const data = ref<AgendaData>({ projects: [], entries: [], assets: [] })
@@ -9,6 +9,8 @@ export function useAgenda(email: Ref<string>) {
   const error = ref('')
   const syncedAt = ref<Date | null>(null)
   let generation = 0
+  let accountGeneration = 0
+  watch(email, () => { accountGeneration++ }, { flush: 'sync' })
 
   async function request<T>(path: string, method = 'GET', body?: unknown, account = email.value): Promise<T> {
     try {
@@ -50,19 +52,24 @@ export function useAgenda(email: Ref<string>) {
     if (email.value) void refresh()
   })
 
-  async function mutate(path: string, method: string, body?: unknown) {
+  async function mutate<T = void>(path: string, method: string, body?: unknown, onSaved?: (result: T) => void) {
     if (saving.value) throw new Error('正在保存，请稍候')
     saving.value = true
     error.value = ''
     const account = email.value
+    const currentAccount = accountGeneration
     try {
-      await request(path, method, body, account)
-      if (email.value === account) await refresh()
+      const result = await request<T>(path, method, body, account)
+      if (currentAccount !== accountGeneration) return
+      onSaved?.(result)
+      await refresh()
+      if (currentAccount === accountGeneration) return result
     } finally { saving.value = false }
   }
 
   const saveProject = (input: ProjectInput, id?: string) => mutate(id ? `/projects/${id}` : '/projects', id ? 'PUT' : 'POST', input)
-  const saveEntry = (input: EntryInput, id?: string) => mutate(id ? `/entries/${id}` : '/entries', id ? 'PUT' : 'POST', input)
+  const saveEntry = (input: EntryInput, id?: string, onSaved?: (result: EntrySaveResult) => void) =>
+    mutate<EntrySaveResult>(id ? `/entries/${id}` : '/entries', id ? 'PUT' : 'POST', input, onSaved)
   const deleteProject = (id: string) => mutate(`/projects/${id}`, 'DELETE')
   const deleteEntry = (id: string) => mutate(`/entries/${id}`, 'DELETE')
   const deleteAsset = (id: string) => mutate(`/assets/${id}`, 'DELETE')

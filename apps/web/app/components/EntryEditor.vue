@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { DESCRIPTION_MAX_LENGTH, type Asset, type Entry, type EntryInput, type Project } from '../../../../shared/types'
+import { DESCRIPTION_MAX_LENGTH, type Asset, type Entry, type EntryInput, type EntrySaveResult, type Project } from '../../../../shared/types'
 import { descriptionReferences, legacyReferenceIds, MAX_ENTRY_REFERENCES, mentionIds } from '../../../../shared/mentions'
 import { dateKey } from '~/utils/dates'
 import { encryptDescription, encryptDescriptionWithKey, validateEncryptionPassword } from '../../../../shared/encryption'
@@ -12,11 +12,12 @@ const props = defineProps<{
   assets: Asset[]
   email: string
   upload: (file: File) => Promise<Asset>
-  submit: (data: EntryInput, id?: string) => Promise<void>
+  submit: (data: EntryInput, id?: string, onSaved?: (result: EntrySaveResult) => void) => Promise<void>
   remove: (id: string) => Promise<void>
 }>()
 const emit = defineEmits<{ close: []; export: [entry: Entry] }>()
 const encryption = useEntryEncryption()
+let disposed = false
 const initialEncrypted = props.entry?.encryptedDescription
 const initialDescription = props.entry ? encryption.description(props.entry) : ''
 const descriptionReady = ref(initialDescription !== undefined)
@@ -75,34 +76,42 @@ watch([encrypted, changingPassword], () => {
     confirmPassword.value = ''
   }
 })
-onUnmounted(() => { form.description = ''; password.value = ''; confirmPassword.value = '' })
+onUnmounted(() => { disposed = true; form.description = ''; password.value = ''; confirmPassword.value = '' })
 async function save() {
   if (busy.value || uploading.value) return
   if (form.description.length > DESCRIPTION_MAX_LENGTH) { error.value = `描述不能超过 ${DESCRIPTION_MAX_LENGTH} 字符。`; return }
   if (references.value.length > MAX_ENTRY_REFERENCES) { error.value = '最多引用 50 个不同事项，请移除多余引用后保存。'; return }
   busy.value = true
   error.value = ''
+  const retention = encryption.prepareSave(props.entry)
+  const description = form.description
   try {
     let encryptedDescription = locked.value ? initialEncrypted : null
+    let key: CryptoKey | undefined
     if (encrypted.value && !locked.value) {
       if (!initialEncrypted || changingPassword.value) {
         validateEncryptionPassword(password.value)
         if (password.value !== confirmPassword.value) throw new Error('两次输入的加密密码不一致')
-        encryptedDescription = (await encryptDescription(form.description, password.value)).encryptedDescription
+        const sealed = await encryptDescription(description, password.value)
+        encryptedDescription = sealed.encryptedDescription
+        key = sealed.key
       } else {
         const secret = props.entry && encryption.get(props.entry)
         if (!secret) throw new Error('描述已重新锁定，请关闭编辑器后重新解锁')
-        encryptedDescription = form.description === secret.description ? initialEncrypted
-          : await encryptDescriptionWithKey(form.description, secret.key, initialEncrypted.salt)
+        key = secret.key
+        encryptedDescription = description === secret.description ? initialEncrypted
+          : await encryptDescriptionWithKey(description, key, initialEncrypted.salt)
       }
     }
-    await props.submit({ ...form, description: encryptedDescription ? '' : form.description,
+    if (disposed || !retention.isCurrent()) throw new Error('事项或空间已变化，请重新打开后保存')
+    const snapshot = encryptedDescription && key ? { encryptedDescription, description, key } : undefined
+    await props.submit({ ...form, description: encryptedDescription ? '' : description,
       encryptedDescription: encryptedDescription ?? null, date: undated.value ? null : form.date,
-      references: [...references.value], assetIds: [...assetIds.value] }, props.entry?.id)
-    if (props.entry) encryption.lock(props.entry.id)
-    emit('close')
+      references: [...references.value], assetIds: [...assetIds.value] }, props.entry?.id,
+      snapshot ? result => retention.confirm(result, snapshot) : undefined)
+    if (!disposed) emit('close')
   }
-  catch (cause) { error.value = (cause as Error).message }
+  catch (cause) { if (!disposed) error.value = (cause as Error).message }
   finally { busy.value = false }
 }
 async function uploadFiles(event: Event) {
@@ -162,7 +171,7 @@ async function remove() {
               <label class="field">加密密码<input v-model="password" type="password" autocomplete="new-password" maxlength="256" placeholder="8–256 个字符"></label>
               <label class="field">确认加密密码<input v-model="confirmPassword" type="password" autocomplete="new-password" maxlength="256"></label>
             </div>
-            <p v-if="!initialEncrypted || changingPassword" class="field-help">请记住此事项的独立密码，忘记后无法恢复描述。保存后描述会重新锁定。</p>
+            <p v-if="!initialEncrypted || changingPassword" class="field-help">请记住此事项的独立密码，忘记后无法恢复描述。成功保存并同步后保持解锁；刷新、切换邮箱或主动锁定后需重新输入口令。</p>
           </template>
           <EntryUnlock v-if="locked && entry" :entry="entry" @unlocked="unlocked" />
           <p v-if="locked" class="field-help">可直接修改其他字段，原密文和引用会保留；修改描述、更改密码或取消加密前请先解锁。</p>

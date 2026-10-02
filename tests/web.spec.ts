@@ -40,6 +40,9 @@ test('可选描述加密、锁定编辑、解锁共享、改密、取消加密�
   expect((await decryptDescription(original, password)).description).toBe(text)
   expect(sent.join('\n')).not.toContain('只在解锁后出现的正文')
   expect(sent.join('\n')).not.toContain(password)
+  await expect(card.locator('.entry-description strong')).toHaveText('只在解锁后出现的正文')
+  await expect(card.getByLabel('解锁密码')).toHaveCount(0)
+  await card.getByRole('button', { name: '重新锁定描述', exact: true }).click()
   await expect(card.locator('.entry-description')).toHaveCount(0)
   await noOverflow(page)
   await card.scrollIntoViewIfNeeded()
@@ -131,9 +134,10 @@ test('可选描述加密、锁定编辑、解锁共享、改密、取消加密�
   expect(updated.salt).toBe(original.salt)
   expect(updated.iv).not.toBe(original.iv)
   expect((await decryptDescription(updated, password)).description).toBe(edited)
+  await expect(card.locator('.entry-description strong')).toHaveText('已修改的秘密正文')
+  await expect(card.getByLabel('解锁密码')).toHaveCount(0)
   await card.getByRole('button', { name: '编辑事项 锁定时改标题' }).click()
-  await dialog.getByLabel('解锁密码').fill(password)
-  await dialog.getByRole('button', { name: '解锁描述', exact: true }).click()
+  await expect(dialog.getByRole('textbox', { name: '描述' })).toHaveValue(edited)
   await dialog.getByRole('button', { name: '更改加密密码', exact: true }).click()
   await dialog.getByLabel('加密密码', { exact: true }).fill(newPassword)
   await dialog.getByLabel('确认加密密码', { exact: true }).fill(newPassword)
@@ -143,8 +147,8 @@ test('可选描述加密、锁定编辑、解锁共享、改密、取消加密�
   expect(changed.salt).not.toBe(original.salt)
   await expect(decryptDescription(changed, password)).rejects.toThrow('密码错误')
   expect((await decryptDescription(changed, newPassword)).description).toBe(edited)
-  await card.getByLabel('解锁密码').fill(newPassword)
-  await card.getByRole('button', { name: '解锁描述', exact: true }).click()
+  await expect(card.locator('.entry-description strong')).toHaveText('已修改的秘密正文')
+  await expect(card.getByLabel('解锁密码')).toHaveCount(0)
   if (isMobile) await page.setViewportSize({ width: 320, height: 844 })
   await noOverflow(page)
   await card.scrollIntoViewIfNeeded()
@@ -170,6 +174,212 @@ test('可选描述加密、锁定编辑、解锁共享、改密、取消加密�
   await expect(dialog).toBeHidden()
   expect((await current()).encryptedDescription).toBeUndefined()
   expect((await current()).description).toBe(edited)
+})
+
+test('加密保存保持解锁、失败草稿隔离、同步重试确认与主动锁定', async ({ page, space }) => {
+  await page.clock.setFixedTime(new Date('2026-09-13T04:00:00Z'))
+  const project = await space.project('保存状态')
+  const id = await space.entry(project.id, '保存状态事项', '2026-09-13')
+  const input = (await space.agenda()).entries.find(entry => entry.id === id)!
+  const password = '保存状态口令123'
+  const original = (await encryptDescription('最初的已保存正文', password)).encryptedDescription
+  expect((await space.api.put(`/api/entries/${id}`, { data: { ...input, encryptedDescription: original } })).status()).toBe(200)
+  await enter(page, space.email)
+  const card = page.locator(`#entry-${id}`)
+  const dialog = page.getByRole('dialog', { name: '编辑事项', exact: true })
+  const writes: string[] = []
+  page.on('request', request => { if (request.method() === 'PUT' && request.url().endsWith(`/api/entries/${id}`)) writes.push(request.postData()!) })
+  await card.getByLabel('解锁密码').fill(password)
+  await card.getByRole('button', { name: '解锁描述', exact: true }).click()
+  await expect(card.locator('.entry-description')).toHaveText('最初的已保存正文')
+  await card.getByRole('button', { name: '编辑事项 保存状态事项' }).click()
+  await dialog.getByRole('textbox', { name: '事项标题' }).fill('修改标题仍解锁')
+  await dialog.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(dialog).toBeHidden()
+  await expect(card.locator('.entry-description')).toHaveText('最初的已保存正文')
+  expect((await space.agenda()).entries.find(entry => entry.id === id)?.encryptedDescription).toEqual(original)
+
+  await card.getByRole('button', { name: '编辑事项 修改标题仍解锁' }).click()
+  await expect(dialog.getByRole('textbox', { name: '描述' })).toHaveValue('最初的已保存正文')
+  await dialog.getByRole('textbox', { name: '描述' }).fill('保存失败的草稿')
+  await page.route(`**/api/entries/${id}`, route => route.abort('failed'), { times: 1 })
+  await dialog.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(dialog.getByRole('alert')).toContainText('连接云端失败')
+  await expect(dialog.getByRole('textbox', { name: '描述' })).toHaveValue('保存失败的草稿')
+  await expect(card.locator('.entry-description')).toHaveText('最初的已保存正文')
+  expect((await space.agenda()).entries.find(entry => entry.id === id)?.encryptedDescription).toEqual(original)
+  await dialog.getByRole('button', { name: '取消', exact: true }).click()
+
+  const saved = '**等待同步确认的正文**'
+  await card.getByRole('button', { name: '编辑事项 修改标题仍解锁' }).click()
+  await dialog.getByRole('textbox', { name: '描述' }).fill(saved)
+  await page.route('**/api/agenda', route => route.abort('failed'), { times: 1 })
+  await dialog.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(dialog).toBeHidden()
+  await expect(page.locator('.error-banner')).toContainText('连接云端失败')
+  await expect(card.locator('.entry-description')).toHaveText('最初的已保存正文')
+  const stored = (await space.agenda()).entries.find(entry => entry.id === id)!
+  expect((await decryptDescription(stored.encryptedDescription!, password)).description).toBe(saved)
+  await page.getByRole('button', { name: '重试', exact: true }).click()
+  await expect(card.locator('.entry-description strong')).toHaveText('等待同步确认的正文')
+  await expect(card.getByLabel('解锁密码')).toHaveCount(0)
+  await card.getByRole('button', { name: '编辑事项 修改标题仍解锁' }).click()
+  await expect(dialog.getByRole('textbox', { name: '描述' })).toHaveValue(saved)
+  await dialog.getByRole('button', { name: '取消', exact: true }).click()
+  const popup = page.waitForEvent('popup')
+  await card.getByRole('button', { name: '导出事项 修改标题仍解锁' }).click()
+  const print = await popup
+  await expect(print.locator('.entry-description strong')).toHaveText('等待同步确认的正文')
+  await expect(print.getByLabel('解锁密码')).toHaveCount(0)
+  await print.close()
+
+  await card.getByRole('button', { name: '编辑事项 修改标题仍解锁' }).click()
+  await dialog.getByRole('textbox', { name: '描述' }).fill('主动锁定后不得恢复的保存正文')
+  await page.route('**/api/agenda', route => route.abort('failed'), { times: 1 })
+  await dialog.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(dialog).toBeHidden()
+  await expect(page.locator('.error-banner')).toBeVisible()
+  await card.getByRole('button', { name: '重新锁定描述', exact: true }).click()
+  await page.getByRole('button', { name: '重试', exact: true }).click()
+  // The banner clears when refresh starts; unlock only after the matching GET finishes.
+  await expect(page.locator('.sync-button')).toContainText('已与云端同步')
+  await expect(page.locator('.error-banner')).toBeHidden()
+  await expect(card.getByLabel('解锁密码')).toBeVisible()
+  await expect(card.locator('.entry-description')).toHaveCount(0)
+  await card.getByLabel('解锁密码').fill(password)
+  await card.getByRole('button', { name: '解锁描述', exact: true }).click()
+  await expect(card.locator('.entry-description')).toHaveText('主动锁定后不得恢复的保存正文')
+  for (const write of writes) {
+    const data = JSON.parse(write)
+    expect(data.description).toBe('')
+    expect(data).not.toHaveProperty('key')
+    expect(data).not.toHaveProperty('snapshot')
+    expect(write).not.toContain(password)
+    expect(write).not.toContain('草稿')
+    expect(write).not.toContain('正文')
+  }
+  const browserStorage = await page.evaluate(() => JSON.stringify([Object.entries(localStorage), Object.entries(sessionStorage)]))
+  expect(browserStorage).not.toContain(password)
+  expect(browserStorage).not.toContain('正文')
+})
+
+test('保存确认拒绝错配、外部密文变化、主动锁定与跨邮箱迟到结果', async ({ page, space, otherSpace }) => {
+  test.setTimeout(90_000)
+  await page.clock.setFixedTime(new Date('2026-09-13T04:00:00Z'))
+  const project = await space.project('保存边界空间')
+  await otherSpace.project('其他保存空间')
+  const id = await space.entry(project.id, '保存边界事项', '2026-09-13')
+  const input = (await space.agenda()).entries.find(entry => entry.id === id)!
+  const password = '保存边界口令123'
+  const original = (await encryptDescription('边界测试原始正文', password)).encryptedDescription
+  const externalPassword = '外部更改后的口令456'
+  const external = (await encryptDescription('外部修改的正文', externalPassword)).encryptedDescription
+  await enter(page, space.email)
+  const card = page.locator(`#entry-${id}`)
+  const dialog = page.getByRole('dialog', { name: '编辑事项', exact: true })
+  async function switchDuringSave(email: string, projectName: string) {
+    // Exercise stale-result guards even while normal controls disable account switching.
+    await page.locator('.account-button').dispatchEvent('click')
+    await page.getByRole('textbox', { name: '邮箱地址' }).fill(email)
+    await page.getByRole('button', { name: '切换数据空间' }).click()
+    await expect(page.getByRole('dialog')).toBeHidden()
+    await expect(page.getByRole('navigation', { name: '项目筛选' }).getByRole('button', { name: new RegExp(`^${projectName}`) })).toBeVisible()
+  }
+  for (const scenario of ['locked', 'external', 'receipt', 'account', 'sync-account', 'encrypt']) {
+    expect((await space.api.put(`/api/entries/${id}`, { data: { ...input, encryptedDescription: original } })).status()).toBe(200)
+    await page.reload()
+    await card.getByLabel('解锁密码').fill(password)
+    await card.getByRole('button', { name: '解锁描述', exact: true }).click()
+    await expect(card.locator('.entry-description')).toHaveText('边界测试原始正文')
+    await card.getByRole('button', { name: '编辑事项 保存边界事项' }).click()
+    await dialog.getByRole('textbox', { name: '描述' }).fill('本次写入的加密正文')
+    if (scenario === 'account' || scenario === 'sync-account') await dialog.getByRole('checkbox', { name: '不设日期', exact: true }).check()
+    if (scenario === 'encrypt') {
+      let writes = 0
+      const countWrite = (request: Request) => { if (request.method() === 'PUT' && request.url().endsWith(`/api/entries/${id}`)) writes++ }
+      page.on('request', countWrite)
+      await page.evaluate(() => {
+        const original = crypto.subtle.encrypt.bind(crypto.subtle)
+        let release!: () => void
+        const gate = new Promise<void>(resolve => { release = resolve })
+        ;(window as unknown as { releaseEncrypt: () => void }).releaseEncrypt = release
+        crypto.subtle.encrypt = async (...args: Parameters<typeof original>) => {
+          document.documentElement.dataset.encryptStarted = 'true'
+          await gate
+          try { return await original(...args) }
+          finally { document.documentElement.dataset.encryptFinished = 'true' }
+        }
+      })
+      await dialog.getByRole('button', { name: '保存', exact: true }).click()
+      await expect(page.locator('html')).toHaveAttribute('data-encrypt-started', 'true')
+      await switchDuringSave(otherSpace.email, '其他保存空间')
+      await switchDuringSave(space.email, '保存边界空间')
+      await page.evaluate(() => (window as unknown as { releaseEncrypt: () => void }).releaseEncrypt())
+      await expect(page.locator('html')).toHaveAttribute('data-encrypt-finished', 'true')
+      expect(writes).toBe(0)
+      expect((await space.agenda()).entries.find(entry => entry.id === id)?.encryptedDescription).toEqual(original)
+      page.off('request', countWrite)
+    } else if (scenario === 'sync-account') {
+      let release!: () => void
+      let started!: () => void
+      const gate = new Promise<void>(resolve => { release = resolve })
+      const syncing = new Promise<void>(resolve => { started = resolve })
+      await page.route('**/api/agenda', async route => {
+        const response = await route.fetch()
+        started()
+        await gate
+        await route.fulfill({ response })
+      }, { times: 1 })
+      await dialog.getByRole('button', { name: '保存', exact: true }).click()
+      await syncing
+      await switchDuringSave(otherSpace.email, '其他保存空间')
+      await switchDuringSave(space.email, '保存边界空间')
+      await page.getByRole('combobox', { name: '工作台视图' }).click()
+      await page.getByRole('option', { name: '素材库', exact: true }).click()
+      release()
+      await expect(page.locator('.sync-button')).not.toContainText('正在保存')
+      await expect(page.getByRole('combobox', { name: '工作台视图' })).toContainText('素材库')
+      await page.getByRole('combobox', { name: '工作台视图' }).click()
+      await page.getByRole('option', { name: '项目总览', exact: true }).click()
+    } else {
+      let release!: () => void
+      let started!: () => void
+      const gate = new Promise<void>(resolve => { release = resolve })
+      const written = new Promise<void>(resolve => { started = resolve })
+      await page.route(`**/api/entries/${id}`, async route => {
+        const response = await route.fetch()
+        expect(response.status()).toBe(200)
+        started()
+        await gate
+        if (scenario === 'receipt') await route.fulfill({ response, json: { ...await response.json(), id: crypto.randomUUID() } })
+        else await route.fulfill({ response })
+      }, { times: 1 })
+      await dialog.getByRole('button', { name: '保存', exact: true }).click()
+      await written
+      if (scenario === 'locked') await card.locator('.description-lock-label button').evaluate(button => (button as HTMLButtonElement).click())
+      if (scenario === 'external') expect((await space.api.put(`/api/entries/${id}`, { data: { ...input, encryptedDescription: external } })).status()).toBe(200)
+      if (scenario === 'account') {
+        await switchDuringSave(otherSpace.email, '其他保存空间')
+        await switchDuringSave(space.email, '保存边界空间')
+        await page.getByRole('combobox', { name: '工作台视图' }).click()
+        await page.getByRole('option', { name: '素材库', exact: true }).click()
+      }
+      release()
+      await expect(page.locator('.sync-button')).not.toContainText('正在保存')
+      if (scenario === 'account') {
+        await expect(page.getByRole('combobox', { name: '工作台视图' })).toContainText('素材库')
+        await page.getByRole('combobox', { name: '工作台视图' }).click()
+        await page.getByRole('option', { name: '项目总览', exact: true }).click()
+      }
+    }
+    await expect(dialog).toBeHidden()
+    await expect(card.getByLabel('解锁密码')).toBeVisible()
+    await expect(card.locator('.entry-description')).toHaveCount(0)
+    await card.getByLabel('解锁密码').fill(scenario === 'external' ? externalPassword : password)
+    await card.getByRole('button', { name: '解锁描述', exact: true }).click()
+    await expect(card.locator('.entry-description')).toHaveText(scenario === 'external' ? '外部修改的正文' : scenario === 'encrypt' ? '边界测试原始正文' : '本次写入的加密正文')
+    await noOverflow(page)
+  }
 })
 
 async function recordPrintHandoffs(page: Page) {
@@ -308,7 +518,6 @@ test('打印交接过期、源页锁定、密文变化、邮箱切换与浏览�
     if (scenario === 'clone') await page.evaluate(() => { document.documentElement.dataset.rejectPrintKey = 'true' })
     release()
     const print = await popup
-    await page.context().unroute(documentURL)
     await expect(print, scenario).toHaveURL(documentURL)
     await expect(print.locator('.entry-description')).toHaveCount(0)
     await expect.poll(() => page.evaluate(() => (window as unknown as { printHandoffs: { closed: string[] } }).printHandoffs.closed.length)).toBe(1)
@@ -322,6 +531,8 @@ test('打印交接过期、源页锁定、密文变化、邮箱切换与浏览�
       await expect(print.locator('.entry-description')).toHaveText(scenario === 'changed' ? '更新后的正文' : '原始加密正文')
     }
     await print.close()
+    // Removing interception during popup bootstrap can strand in-flight module requests.
+    await page.context().unroute(documentURL)
   }
   await page.reload()
   await card.getByLabel('解锁密码').fill(password)
@@ -358,9 +569,8 @@ test('新建事项独立密码、密文更新使解锁失效、切换邮箱隔�
   const entry = (await space.agenda()).entries[0]!
   const card = page.locator(`#entry-${entry.id}`)
   expect(entry.description).toBe('')
-  await card.getByLabel('解锁密码').fill('新建事项密码123')
-  await card.getByRole('button', { name: '解锁描述', exact: true }).click()
   await expect(card.locator('.entry-description')).toHaveText('新建秘密正文')
+  await expect(card.getByLabel('解锁密码')).toHaveCount(0)
   const { encryptedDescription } = await encryptDescription('云端更新后的秘密', '第二个独立密码456')
   expect((await space.api.put(`/api/entries/${entry.id}`, { data: { ...entry, projectId: project.id, encryptedDescription } })).ok()).toBe(true)
   await page.locator('.sync-button').click()
