@@ -1,6 +1,6 @@
 import { inject, provide, shallowReactive, watch, onUnmounted, type InjectionKey, type Ref } from 'vue'
-import type { Entry } from '../../../../shared/types'
-import { decryptDescription } from '../../../../shared/encryption'
+import type { EncryptedDescription, Entry } from '../../../../shared/types'
+import { decryptDescription, decryptDescriptionWithKey } from '../../../../shared/encryption'
 
 interface Secret {
   fingerprint: string
@@ -31,19 +31,21 @@ function createEntryEncryption(email: Ref<string>, entries: Ref<Entry[]>) {
     secrets.clear()
     attempts.clear()
   }
-  async function unlock(entry: Entry, password: string) {
+  async function unlockUsing(entry: Entry, decrypt: (data: EncryptedDescription) => ReturnType<typeof decryptDescription>) {
     if (!entry.encryptedDescription) return
     const currentGeneration = generation
     const attempt = (attempts.get(entry.id) || 0) + 1
     attempts.set(entry.id, attempt)
     const original = fingerprint(entry)
-    const secret = await decryptDescription(entry.encryptedDescription, password)
+    const secret = await decrypt(entry.encryptedDescription)
     const latest = entries.value.find(item => item.id === entry.id)
     if (currentGeneration !== generation || attempts.get(entry.id) !== attempt || !latest || fingerprint(latest) !== original) {
       throw new Error('事项或空间已变化，请重新解锁')
     }
     secrets.set(entry.id, { ...secret, fingerprint: original })
   }
+  const unlock = (entry: Entry, password: string) => unlockUsing(entry, data => decryptDescription(data, password))
+  const unlockWithKey = (entry: Entry, key: CryptoKey) => unlockUsing(entry, data => decryptDescriptionWithKey(data, key))
 
   watch(email, clear, { flush: 'sync' })
   watch(entries, latest => {
@@ -54,8 +56,10 @@ function createEntryEncryption(email: Ref<string>, entries: Ref<Entry[]>) {
     }
   }, { flush: 'sync' })
   onUnmounted(clear)
-  return { get, description, lock, unlock }
+  return { get, description, lock, unlock, unlockWithKey }
 }
+
+export type EntryEncryption = ReturnType<typeof createEntryEncryption>
 
 const encryptionKey: InjectionKey<ReturnType<typeof createEntryEncryption>> = Symbol('entry-encryption')
 

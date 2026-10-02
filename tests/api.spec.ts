@@ -2,7 +2,7 @@ import { test, expect } from './fixtures'
 import { DESCRIPTION_MAX_LENGTH, JSON_BODY_MAX_BYTES, PROJECT_COLORS } from '../shared/types'
 import { samplePng } from './image'
 import { apiURL } from './environment'
-import { MAX_CIPHERTEXT_BYTES, decryptDescription, encryptDescription, encryptDescriptionWithKey, isEncryptedDescription } from '../shared/encryption'
+import { MAX_CIPHERTEXT_BYTES, decryptDescription, decryptDescriptionWithKey, encryptDescription, encryptDescriptionWithKey, isEncryptedDescription } from '../shared/encryption'
 
 test('描述加密无损往返、独立随机盐与 IV、错误密码和篡改拒绝', async () => {
   const password = '  独立密码 😀  '
@@ -13,6 +13,10 @@ test('描述加密无损往返、独立随机盐与 IV、错误密码和篡改�
     expect(isEncryptedDescription(encryptedDescription)).toBe(true)
     expect(Buffer.from(encryptedDescription.ciphertext, 'base64')).toHaveLength(Buffer.byteLength(JSON.stringify(description)) + 16)
     expect((await decryptDescription(encryptedDescription, password)).description).toBe(description)
+    const clonedKey = structuredClone(key)
+    expect(clonedKey.extractable).toBe(false)
+    expect((await decryptDescriptionWithKey(encryptedDescription, clonedKey)).description).toBe(description)
+    await expect(crypto.subtle.exportKey('raw', clonedKey)).rejects.toThrow()
     const again = await encryptDescriptionWithKey(description, key, encryptedDescription.salt)
     expect(again.iv).not.toBe(encryptedDescription.iv)
     expect((await decryptDescription(again, password)).description).toBe(description)
@@ -24,6 +28,11 @@ test('描述加密无损往返、独立随机盐与 IV、错误密码和篡改�
   await expect(decryptDescription(first, '错误的密码123')).rejects.toThrow('密码错误或加密描述已损坏')
   const tampered = { ...first, ciphertext: (first.ciphertext[0] === 'A' ? 'B' : 'A') + first.ciphertext.slice(1) }
   await expect(decryptDescription(tampered, password)).rejects.toThrow('密码错误或加密描述已损坏')
+  const unrelatedKey = (await encryptDescription('另一个事项', password)).key
+  await expect(decryptDescriptionWithKey(first, unrelatedKey)).rejects.toThrow('密码错误或加密描述已损坏')
+  await expect(decryptDescriptionWithKey(first, {} as CryptoKey)).rejects.toThrow('解密密钥无效')
+  const extractableKey = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['decrypt'])
+  await expect(decryptDescriptionWithKey(first, extractableKey)).rejects.toThrow('解密密钥无效')
   await expect(encryptDescription('x'.repeat(DESCRIPTION_MAX_LENGTH + 1), password)).rejects.toThrow(String(DESCRIPTION_MAX_LENGTH))
   await expect(encryptDescription('秘密', '短密码')).rejects.toThrow('8–256')
 })

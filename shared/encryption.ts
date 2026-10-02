@@ -76,8 +76,16 @@ export async function encryptDescription(description: string, password: string) 
 export async function decryptDescription(data: EncryptedDescription, password: string) {
   if (!isEncryptedDescription(data)) throw new Error('加密描述格式无效或版本不受支持')
   validateEncryptionPassword(password)
+  return decryptDescriptionWithKey(data, await deriveKey(password, decode(data.salt)))
+}
+
+export async function decryptDescriptionWithKey(data: EncryptedDescription, key: CryptoKey) {
+  if (!isEncryptedDescription(data)) throw new Error('加密描述格式无效或版本不受支持')
+  if (typeof CryptoKey === 'undefined' || !(key instanceof CryptoKey) || key.type !== 'secret' || key.extractable ||
+    key.algorithm.name !== 'AES-GCM' || (key.algorithm as { length?: number }).length !== 256 || !key.usages.includes('decrypt')) {
+    throw new Error('解密密钥无效')
+  }
   const api = subtle()
-  const key = await deriveKey(password, decode(data.salt))
   try {
     const bytes = await api.decrypt({ name: 'AES-GCM', iv: decode(data.iv), additionalData, tagLength: 128 }, key, decode(data.ciphertext))
     const description: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes))

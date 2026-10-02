@@ -85,22 +85,40 @@ test('可选描述加密、锁定编辑、解锁共享、改密、取消加密�
   await page.keyboard.press('Escape')
   if (!isMobile) await page.mouse.move(0, 0)
 
-  // Printing never transfers passwords or plaintext into a URL or another tab.
+  // A one-shot key handoff unlocks the saved description without another password.
   const popup = page.waitForEvent('popup')
   await card.getByRole('button', { name: '导出事项 锁定时改标题' }).click()
   const printPage = await popup
-  await expect(printPage.getByRole('button', { name: '打印 / 保存为 PDF' })).toBeDisabled()
-  await expect(printPage.locator('.print-sheet .entry-description')).toHaveCount(0)
-  await printPage.getByLabel('解锁密码').fill(password)
-  await printPage.getByRole('button', { name: '解锁描述', exact: true }).click()
   await expect(printPage.locator('.entry-description strong')).toHaveText('只在解锁后出现的正文')
+  await expect(printPage.getByLabel('解锁密码')).toHaveCount(0)
+  await expect(printPage).toHaveURL(new RegExp(`\\?printEntry=${id}$`))
+  expect(await printPage.evaluate(() => window.opener)).toBeNull()
   await expect(printPage.getByRole('button', { name: '打印 / 保存为 PDF' })).toBeEnabled()
+  await card.getByRole('button', { name: '重新锁定描述', exact: true }).click()
+  await expect(card.locator('.entry-description')).toHaveCount(0)
+  await expect(printPage.locator('.entry-description strong')).toHaveText('只在解锁后出现的正文')
+  const lockedPopup = page.waitForEvent('popup')
+  await card.getByRole('button', { name: '导出事项 锁定时改标题' }).click()
+  const lockedPrint = await lockedPopup
+  await expect(lockedPrint.getByRole('button', { name: '打印 / 保存为 PDF' })).toBeDisabled()
+  await lockedPrint.getByLabel('解锁密码').fill(password)
+  await lockedPrint.getByRole('button', { name: '解锁描述', exact: true }).click()
+  await expect(lockedPrint.locator('.entry-description strong')).toHaveText('只在解锁后出现的正文')
+  await expect(card.locator('.entry-description')).toHaveCount(0)
+  await lockedPrint.close()
+  await card.getByLabel('解锁密码').fill(password)
+  await card.getByRole('button', { name: '解锁描述', exact: true }).click()
+  await expect(card.locator('.entry-description strong')).toBeVisible()
   await noOverflow(printPage)
   await printPage.emulateMedia({ media: 'print' })
   await expect(printPage.getByRole('button', { name: '重新锁定描述' })).toBeHidden()
   expect((await printPage.pdf({ format: 'A4', printBackground: true })).subarray(0, 5).toString()).toBe('%PDF-')
+  await printPage.emulateMedia({ media: 'screen' })
   await printPage.reload()
   await expect(printPage.locator('.entry-description')).toHaveCount(0)
+  await expect(printPage.getByRole('button', { name: '打印 / 保存为 PDF' })).toBeDisabled()
+  await expect(printPage.getByLabel('解锁密码')).toBeVisible()
+  await expect(card.locator('.entry-description strong')).toBeVisible()
   await printPage.close()
 
   await card.getByRole('button', { name: '编辑事项 锁定时改标题' }).click()
@@ -152,6 +170,174 @@ test('可选描述加密、锁定编辑、解锁共享、改密、取消加密�
   await expect(dialog).toBeHidden()
   expect((await current()).encryptedDescription).toBeUndefined()
   expect((await current()).description).toBe(edited)
+})
+
+async function recordPrintHandoffs(page: Page) {
+  await page.evaluate(() => {
+    const state = { urls: [] as string[], opened: [] as string[], closed: [] as string[], keys: [] as { extractable: boolean | undefined; serialized: string }[] }
+    ;(window as unknown as { printHandoffs: typeof state }).printHandoffs = state
+    const open = window.open.bind(window)
+    window.open = (...args: Parameters<typeof window.open>) => { state.urls.push(String(args[0])); return open(...args) }
+    const OriginalChannel = BroadcastChannel
+    window.BroadcastChannel = class extends OriginalChannel {
+      constructor(name: string) { super(name); state.opened.push(name) }
+      override postMessage(message: unknown) {
+        const data = message as { type?: string; key?: CryptoKey }
+        if (data?.type === 'key') {
+          state.keys.push({ extractable: data.key?.extractable, serialized: JSON.stringify(message) })
+          if (document.documentElement.dataset.rejectPrintKey) throw new DOMException('Key cloning unsupported', 'DataCloneError')
+        }
+        super.postMessage(message)
+      }
+      override close() { state.closed.push(this.name); super.close() }
+    }
+  })
+}
+
+test('打印免口令仅使用已保存正文、多页独立、一次性交接与关闭工作台', async ({ page, space }) => {
+  await page.clock.setFixedTime(new Date('2026-09-13T04:00:00Z'))
+  const project = await space.project('打印交接')
+  const records = []
+  for (const name of ['甲', '乙']) {
+    const title = `交接事项${name}`
+    const text = `**${name}的已保存正文**`
+    const password = `${name}的独立口令123`
+    const id = await space.entry(project.id, title, '2026-09-13')
+    const entry = (await space.agenda()).entries.find(item => item.id === id)!
+    const { encryptedDescription } = await encryptDescription(text, password)
+    expect((await space.api.put(`/api/entries/${id}`, { data: { ...entry, encryptedDescription } })).status()).toBe(200)
+    records.push({ id, title, text, password })
+  }
+  await enter(page, space.email)
+  await recordPrintHandoffs(page)
+  const prints: Page[] = []
+  for (const record of records) {
+    const card = page.locator(`#entry-${record.id}`)
+    await card.getByLabel('解锁密码').fill(record.password)
+    await card.getByRole('button', { name: '解锁描述', exact: true }).click()
+    await expect(card.locator('.entry-description strong')).toBeVisible()
+    const popup = page.waitForEvent('popup')
+    await card.getByRole('button', { name: `导出事项 ${record.title}` }).click()
+    const print = await popup
+    await expect(print.locator('.entry-description strong')).toHaveText(`${record.title.slice(-1)}的已保存正文`)
+    await expect(print.getByLabel('解锁密码')).toHaveCount(0)
+    prints.push(print)
+  }
+  await expect(prints[0]!.locator('.print-sheet')).not.toContainText('乙的已保存正文')
+  await expect(prints[1]!.locator('.print-sheet')).not.toContainText('甲的已保存正文')
+  const first = records[0]!
+  await page.locator(`#entry-${first.id}`).getByRole('button', { name: `编辑事项 ${first.title}` }).click()
+  const dialog = page.getByRole('dialog', { name: '编辑事项', exact: true })
+  await dialog.getByRole('textbox', { name: '事项标题' }).fill('未保存标题')
+  await dialog.getByRole('textbox', { name: '描述' }).fill('未保存正文')
+  const draftPopup = page.waitForEvent('popup')
+  await dialog.getByRole('button', { name: '导出已保存事项' }).click()
+  const draftPrint = await draftPopup
+  await expect(draftPrint.getByRole('heading', { name: first.title, exact: true })).toBeVisible()
+  await expect(draftPrint.locator('.entry-description strong')).toHaveText('甲的已保存正文')
+  await expect(draftPrint.locator('.print-sheet')).not.toContainText('未保存')
+  prints.push(draftPrint)
+  await dialog.getByRole('button', { name: '取消', exact: true }).click()
+  await expect.poll(() => page.evaluate(() => (window as unknown as { printHandoffs: { closed: string[] } }).printHandoffs.closed.length)).toBe(3)
+  const handoffs = await page.evaluate(() => (window as unknown as { printHandoffs: { urls: string[]; opened: string[]; keys: { extractable: boolean; serialized: string }[] } }).printHandoffs)
+  expect(new Set(handoffs.opened).size).toBe(3)
+  expect(handoffs.keys).toHaveLength(3)
+  expect(handoffs.keys.every(key => !key.extractable)).toBe(true)
+  for (const record of records) {
+    expect(JSON.stringify(handoffs)).not.toContain(record.password)
+    expect(JSON.stringify(handoffs)).not.toContain(record.text)
+  }
+  const replay = await page.context().newPage()
+  await replay.goto(handoffs.urls[0]!)
+  await expect(replay.getByLabel('解锁密码')).toBeVisible()
+  await expect(replay.getByRole('button', { name: '打印 / 保存为 PDF' })).toBeDisabled()
+  await expect(replay).toHaveURL(new RegExp(`\\?printEntry=${first.id}$`))
+  await replay.close()
+  const stored = await prints[0]!.evaluate(() => JSON.stringify([Object.entries(localStorage), Object.entries(sessionStorage)]))
+  expect(stored).not.toContain('口令123')
+  expect(stored).not.toContain('已保存正文')
+  expect(stored).not.toContain('printUnlock')
+  await prints[0]!.getByRole('button', { name: '重新锁定描述', exact: true }).click()
+  await expect(prints[0]!.getByRole('button', { name: '打印 / 保存为 PDF' })).toBeDisabled()
+  await expect(prints[1]!.getByRole('button', { name: '打印 / 保存为 PDF' })).toBeEnabled()
+  await expect(page.locator(`#entry-${first.id} .entry-description strong`)).toBeVisible()
+  await prints[0]!.getByLabel('解锁密码').fill(first.password)
+  await prints[0]!.getByRole('button', { name: '解锁描述', exact: true }).click()
+  await expect(prints[0]!.locator('.entry-description strong')).toHaveText('甲的已保存正文')
+  await page.close()
+  for (const print of prints) {
+    await expect(print.getByRole('button', { name: '打印 / 保存为 PDF' })).toBeEnabled()
+    await noOverflow(print)
+    await print.close()
+  }
+})
+
+test('打印交接过期、源页锁定、密文变化、邮箱切换与浏览器兼容回退', async ({ page, space, otherSpace }) => {
+  test.setTimeout(90_000)
+  await page.clock.install({ time: new Date('2026-09-13T04:00:00Z') })
+  const project = await space.project('交接边界')
+  await otherSpace.project('另一个空间')
+  const id = await space.entry(project.id, '交接边界事项', '2026-09-13')
+  const entry = (await space.agenda()).entries.find(item => item.id === id)!
+  const password = '交接边界口令123'
+  const encryptedDescription = (await encryptDescription('原始加密正文', password)).encryptedDescription
+  const changed = (await encryptDescription('更新后的正文', '更新后的独立口令456')).encryptedDescription
+  await enter(page, space.email)
+  const card = page.locator(`#entry-${id}`)
+  const documentURL = new RegExp(`/\\?printEntry=${id}$`)
+  for (const scenario of ['expired', 'locked', 'changed', 'account', 'clone']) {
+    expect((await space.api.put(`/api/entries/${id}`, { data: { ...entry, encryptedDescription } })).status()).toBe(200)
+    await switchSpace(page, space.email)
+    await page.reload()
+    await card.getByLabel('解锁密码').fill(password)
+    await card.getByRole('button', { name: '解锁描述', exact: true }).click()
+    await expect(card.locator('.entry-description')).toHaveText('原始加密正文')
+    await recordPrintHandoffs(page)
+    let release!: () => void
+    let started!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const requested = new Promise<void>(resolve => { started = resolve })
+    await page.context().route(documentURL, async route => { started(); await gate; await route.continue() })
+    const popup = page.waitForEvent('popup')
+    await card.getByRole('button', { name: '导出事项 交接边界事项' }).click()
+    await requested
+    if (scenario === 'expired') { await page.clock.runFor(30_001); await page.clock.resume() }
+    if (scenario === 'locked') await card.getByRole('button', { name: '重新锁定描述', exact: true }).click()
+    if (scenario === 'changed') expect((await space.api.put(`/api/entries/${id}`, { data: { ...entry, encryptedDescription: changed } })).status()).toBe(200)
+    if (scenario === 'account') await switchSpace(page, otherSpace.email)
+    if (scenario === 'clone') await page.evaluate(() => { document.documentElement.dataset.rejectPrintKey = 'true' })
+    release()
+    const print = await popup
+    await page.context().unroute(documentURL)
+    await expect(print, scenario).toHaveURL(documentURL)
+    await expect(print.locator('.entry-description')).toHaveCount(0)
+    await expect.poll(() => page.evaluate(() => (window as unknown as { printHandoffs: { closed: string[] } }).printHandoffs.closed.length)).toBe(1)
+    if (scenario === 'account') {
+      await expect(print.getByRole('heading', { name: '找不到这个事项' })).toBeVisible()
+    } else {
+      await expect(print.getByLabel('解锁密码')).toBeVisible()
+      await expect(print.getByRole('button', { name: '打印 / 保存为 PDF' })).toBeDisabled()
+      await print.getByLabel('解锁密码').fill(scenario === 'changed' ? '更新后的独立口令456' : password)
+      await print.getByRole('button', { name: '解锁描述', exact: true }).click()
+      await expect(print.locator('.entry-description')).toHaveText(scenario === 'changed' ? '更新后的正文' : '原始加密正文')
+    }
+    await print.close()
+  }
+  await page.reload()
+  await card.getByLabel('解锁密码').fill(password)
+  await card.getByRole('button', { name: '解锁描述', exact: true }).click()
+  await expect(card.locator('.entry-description')).toHaveText('原始加密正文')
+  await recordPrintHandoffs(page)
+  await page.evaluate(() => { Object.defineProperty(window, 'BroadcastChannel', { value: undefined, configurable: true }) })
+  const unsupportedPopup = page.waitForEvent('popup')
+  await card.getByRole('button', { name: '导出事项 交接边界事项' }).click()
+  const unsupportedPrint = await unsupportedPopup
+  await expect(unsupportedPrint.getByLabel('解锁密码')).toBeVisible()
+  await expect(unsupportedPrint).toHaveURL(documentURL)
+  const unsupported = await page.evaluate(() => (window as unknown as { printHandoffs: { opened: string[]; urls: string[] } }).printHandoffs)
+  expect(unsupported.opened).toEqual([])
+  expect(unsupported.urls[0]).not.toContain('printUnlock')
+  await unsupportedPrint.close()
 })
 
 test('新建事项独立密码、密文更新使解锁失效、切换邮箱隔离迟到解密', async ({ page, space, otherSpace }) => {

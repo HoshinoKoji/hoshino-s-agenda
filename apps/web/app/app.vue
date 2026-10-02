@@ -18,7 +18,9 @@ const showProjectOrder = ref(false)
 const projectEditor = ref<{ project?: Project } | null>(null)
 const entryEditor = ref<{ entry?: Entry; date: string | null; projectId: string } | null>(null)
 const { data, loading, saving, reordering, error, syncedAt, refresh, saveProject, saveEntry, deleteProject, deleteEntry, deleteAsset, renameAsset, uploadAsset, toggleEntry, moveEntry, reorderProjects } = useAgenda(email)
-provideEntryEncryption(email, computed(() => data.value.entries))
+const agendaEntries = computed(() => data.value.entries)
+const encryption = provideEntryEncryption(email, agendaEntries)
+const printUnlock = usePrintUnlockTransfer(email, agendaEntries, encryption)
 watch(email, () => { entryEditor.value = null; projectEditor.value = null }, { flush: 'sync' })
 watch(() => data.value.entries, entries => {
   const editing = entryEditor.value?.entry
@@ -30,7 +32,15 @@ let clock: ReturnType<typeof setInterval> | undefined
 
 onMounted(() => {
   printEntryId.value = new URLSearchParams(window.location.search).get('printEntry') || ''
+  const fragment = new URLSearchParams(window.location.hash.slice(1))
+  const printUnlockToken = fragment.get('printUnlock')
+  if (printUnlockToken !== null) {
+    fragment.delete('printUnlock')
+    const remaining = fragment.toString()
+    window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}${remaining ? `#${remaining}` : ''}`)
+  }
   try { email.value = localStorage.getItem('agenda:email') || '' } catch { /* Storage is optional. */ }
+  if (printUnlockToken) printUnlock.receiveExport(printEntryId.value, printUnlockToken)
   if (window.matchMedia('(max-width: 600px)').matches) view.value = 'week'
   hydrated.value = true
   clock = setInterval(() => { today.value = dateKey(new Date()) }, 60_000)
@@ -107,7 +117,8 @@ function editEntry(entry: Entry) {
   entryEditor.value = { entry, date: entry.date, projectId: entry.projectId }
 }
 function exportEntry(entry: Entry) {
-  window.open(`/?printEntry=${encodeURIComponent(entry.id)}`, '_blank', 'noopener')
+  const token = printUnlock.prepareExport(entry)
+  window.open(`/?printEntry=${encodeURIComponent(entry.id)}${token ? `#printUnlock=${token}` : ''}`, '_blank', 'noopener')
 }
 async function submitEntry(input: EntryInput, id?: string) {
   await saveEntry(input, id)
