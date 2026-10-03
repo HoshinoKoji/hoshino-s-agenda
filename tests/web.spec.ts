@@ -6,6 +6,408 @@ import { samplePng } from './image'
 import { decryptDescription, encryptDescription } from '../shared/encryption'
 import { DESCRIPTION_MAX_LENGTH } from '../shared/types'
 
+test('事项新标签页：日历与总览列表入口、打印一致的打开方式、加密交接和窄屏', async ({ page, space, otherSpace, isMobile }, testInfo) => {
+  test.setTimeout(90_000)
+  await page.clock.install({ time: new Date('2026-09-13T04:00:00Z') })
+  const project = await space.project('新标签页入口')
+  await otherSpace.project('另外的记住空间')
+  const dated = await space.entry(project.id, '列表里的日期事项', '2026-09-13', [], '日期事项已保存正文')
+  const undated = await space.entry(project.id, '列表里的无日期加密事项', null)
+  const password = '列表新标签页密码123'
+  const original = (await space.agenda()).entries.find(entry => entry.id === undated)!
+  const sealed = (await encryptDescription('列表入口的已保存加密正文', password)).encryptedDescription
+  expect((await space.api.put(`/api/entries/${undated}`, { data: { ...original, completed: true, encryptedDescription: sealed } })).ok()).toBe(true)
+  if (isMobile) await page.setViewportSize({ width: 320, height: 844 })
+  await enter(page, space.email)
+  await page.getByRole('button', { name: '日', exact: true }).click()
+  await page.evaluate(() => {
+    const calls: { target: string | undefined; features: string | undefined }[] = []
+    ;(window as unknown as { entryTabCalls: typeof calls }).entryTabCalls = calls
+    const open = window.open.bind(window)
+    window.open = (...args: Parameters<typeof window.open>) => { calls.push({ target: args[1], features: args[2] }); return open(...args) }
+  })
+  const dayCard = page.locator(`#entry-${dated}`)
+  const dayButton = dayCard.getByRole('button', { name: '在新标签页编辑 列表里的日期事项', exact: true })
+  await expect(dayCard.locator('.entry-actions button')).toHaveCount(3)
+  await expect(dayButton).toHaveAttribute('title', '在新标签页编辑')
+  await dayCard.scrollIntoViewIfNeeded()
+  await noOverflow(page)
+  expect(await dayCard.locator('.entry-actions').evaluate(element => { const box = element.getBoundingClientRect(); return box.left >= 0 && box.right <= window.innerWidth })).toBe(true)
+  await page.screenshot({ path: testInfo.outputPath('entry-list-new-tab.png'), animations: 'disabled' })
+  const dayPopup = page.waitForEvent('popup')
+  await dayButton.focus()
+  await page.keyboard.press('Enter')
+  const dayEditor = await dayPopup
+  await expect(dayEditor).toHaveURL(url => url.search === `?editEntry=${dated}` && url.hash === '')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  expect(await dayEditor.evaluate(() => window.opener)).toBeNull()
+  await expect(dayEditor.getByRole('textbox', { name: '描述' })).toHaveValue('日期事项已保存正文')
+  await dayEditor.getByRole('textbox', { name: '事项标题' }).fill('列表标签页保存后的长事项标题')
+  await dayEditor.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(dayEditor.locator('.entry-edit-status')).toContainText('已保存并与云端同步')
+  await expect(dayCard.locator('.entry-title')).toHaveText('列表标签页保存后的长事项标题')
+
+  const printPopup = page.waitForEvent('popup')
+  await dayCard.getByRole('button', { name: '导出事项 列表标签页保存后的长事项标题', exact: true }).click()
+  const print = await printPopup
+  await expect(print.getByRole('heading', { name: '列表标签页保存后的长事项标题', exact: true })).toBeVisible()
+  await print.close()
+  await dayCard.getByRole('button', { name: '编辑事项 列表标签页保存后的长事项标题', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: '编辑事项', exact: true })
+  await dialog.getByRole('textbox', { name: '描述' }).fill('此弹窗的修改不会进入新标签页')
+  page.once('dialog', confirmation => confirmation.accept())
+  const modalPopup = page.waitForEvent('popup')
+  await dialog.getByRole('button', { name: '在新标签页编辑', exact: true }).click()
+  const modalEditor = await modalPopup
+  await expect(dialog).toBeHidden()
+  await expect(modalEditor.getByRole('textbox', { name: '描述' })).toHaveValue('日期事项已保存正文')
+  await modalEditor.close()
+  await dayEditor.close()
+
+  await switchWorkspaceView(page, '项目总览')
+  await page.getByRole('button', { name: '无日期', exact: true }).click()
+  await page.getByRole('button', { name: '已完成 1', exact: true }).click()
+  const overviewCard = page.locator(`#entry-${undated}`)
+  const overviewButton = overviewCard.getByRole('button', { name: '在新标签页编辑 列表里的无日期加密事项', exact: true })
+  await expect(overviewButton).toBeVisible()
+  await expect(overviewCard.locator('.entry-actions button')).toHaveCount(3)
+  await overviewCard.scrollIntoViewIfNeeded()
+  await noOverflow(page)
+  expect(await overviewCard.locator('.entry-actions').evaluate(element => { const box = element.getBoundingClientRect(); return box.left >= 0 && box.right <= window.innerWidth })).toBe(true)
+  await page.screenshot({ path: testInfo.outputPath('overview-list-new-tab.png'), animations: 'disabled' })
+  // The shortcut must use this workspace, even when another tab remembers a different email.
+  await page.evaluate(email => localStorage.setItem('agenda:email', email), otherSpace.email)
+  const lockedPopup = page.waitForEvent('popup')
+  await overviewButton.click()
+  const lockedEditor = await lockedPopup
+  await expect(lockedEditor.getByLabel('解锁密码')).toBeVisible()
+  await expect(lockedEditor.getByRole('checkbox', { name: '不设日期', exact: true })).toBeChecked()
+  await expect(lockedEditor.getByRole('button', { name: '标为未完成', exact: true })).toBeVisible()
+  await expect(lockedEditor.getByRole('textbox', { name: '事项标题' })).toHaveValue('列表里的无日期加密事项')
+  await lockedEditor.close()
+  await expect(page.getByRole('button', { name: '无日期', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByRole('button', { name: '已完成 1', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await overviewCard.getByLabel('解锁密码').fill(password)
+  await overviewCard.getByRole('button', { name: '解锁描述', exact: true }).click()
+  await expect(overviewCard.locator('.entry-description')).toHaveText('列表入口的已保存加密正文')
+  const unlockedPopup = page.waitForEvent('popup')
+  await overviewButton.click()
+  const unlockedEditor = await unlockedPopup
+  await expect(unlockedEditor.getByRole('textbox', { name: '描述' })).toHaveValue('列表入口的已保存加密正文')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await unlockedEditor.close()
+  const calls = await page.evaluate(() => (window as unknown as { entryTabCalls: { target: string; features: string }[] }).entryTabCalls)
+  expect(calls).toHaveLength(5)
+  for (const call of calls) expect(call).toEqual({ target: '_blank', features: 'noopener' })
+
+  await page.evaluate(() => { window.open = () => null })
+  await overviewButton.click()
+  await expect(overviewButton).toBeDisabled()
+  await page.clock.runFor(30_001)
+  await expect(page.getByRole('alert')).toContainText('未收到编辑标签页的打开确认')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(overviewButton).toBeEnabled()
+  await page.getByRole('button', { name: '关闭编辑标签页提示', exact: true }).click()
+  await expect(page.getByRole('alert')).toHaveCount(0)
+})
+
+test('事项独立窗口：草稿警告、云端读取、连续保存、附件引用与跨窗口变更', async ({ page, space, isMobile }, testInfo) => {
+  test.setTimeout(90_000)
+  await page.clock.setFixedTime(new Date('2026-09-13T04:00:00Z'))
+  const project = await space.project('独立编辑项目')
+  const other = await space.project('另一个编辑项目')
+  const target = await space.entry(other.id, '独立窗口引用目标', null)
+  const id = await space.entry(project.id, '打开前的标题', '2026-09-13', [], '原始正文')
+  await enter(page, space.email)
+  const card = page.locator(`#entry-${id}`)
+  await card.getByRole('button', { name: '编辑事项 打开前的标题' }).click()
+  const dialog = page.getByRole('dialog', { name: '编辑事项', exact: true })
+  await dialog.getByRole('textbox', { name: '事项标题' }).fill('弹窗未保存标题')
+  await dialog.getByRole('textbox', { name: '描述' }).fill('弹窗未保存正文')
+  const pageCount = page.context().pages().length
+  page.once('dialog', async confirmation => { expect(confirmation.message()).toContain('未保存'); await confirmation.dismiss() })
+  await dialog.getByRole('button', { name: '在新标签页编辑' }).click()
+  expect(page.context().pages()).toHaveLength(pageCount)
+  await expect(dialog.getByRole('textbox', { name: '描述' })).toHaveValue('弹窗未保存正文')
+  const original = (await space.agenda()).entries.find(entry => entry.id === id)!
+  expect((await space.api.put(`/api/entries/${id}`, { data: { ...original, title: '云端最新标题', description: '云端最新正文' } })).ok()).toBe(true)
+  page.once('dialog', async confirmation => { expect(confirmation.message()).toContain('云端'); await confirmation.accept() })
+  const popup = page.waitForEvent('popup')
+  await dialog.getByRole('button', { name: '在新标签页编辑' }).click()
+  const editor = await popup
+  await expect(editor).toHaveURL(url => url.search === `?editEntry=${id}` && url.hash === '')
+  await expect(dialog).toBeHidden()
+  expect(await editor.evaluate(() => window.opener)).toBeNull()
+  await expect(editor.getByRole('dialog')).toHaveCount(0)
+  await expect(editor.getByRole('textbox', { name: '事项标题' })).toHaveValue('云端最新标题')
+  await expect(editor.getByRole('textbox', { name: '描述' })).toHaveValue('云端最新正文')
+  const methods: string[] = []
+  editor.on('request', request => { if (/\/api\/entries(?:\/[^/]+)?$/.test(request.url()) && request.method() !== 'GET') methods.push(request.method()) })
+  await editor.getByRole('textbox', { name: '事项标题' }).fill('独立窗口第一次保存')
+  await expect(editor.locator('.entry-edit-status')).toContainText('有未保存的修改')
+  await editor.getByRole('combobox', { name: '所属项目' }).click()
+  await editor.getByRole('option', { name: '另一个编辑项目', exact: true }).click()
+  const body = `**独立编辑 Markdown**\n\n${serializeMention({ id: target, title: '独立窗口引用目标' })}\n${'长正文用于检查页面滚动。\n'.repeat(80)}`
+  await editor.getByRole('textbox', { name: '描述' }).fill(body)
+  await editor.getByLabel('上传事项附件').setInputFiles({ name: '独立窗口附件.txt', mimeType: 'text/plain', buffer: Buffer.from('独立附件内容') })
+  await expect(editor.locator('.entry-asset-chip')).toContainText('独立窗口附件.txt')
+  await editor.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(editor.locator('.entry-edit-status')).toContainText('已保存并与云端同步')
+  await expect(editor.getByRole('textbox', { name: '描述' })).toHaveValue(body)
+  await expect(card.getByRole('button', { name: '编辑事项 独立窗口第一次保存' })).toBeVisible()
+  await expect(page.getByRole('combobox', { name: '工作台视图' })).toContainText('项目日历')
+  await expect(editor).toHaveTitle('独立窗口第一次保存 · 编辑事项 · 日迹')
+  const first = (await space.agenda()).entries.find(entry => entry.id === id)!
+  expect(first.projectId).toBe(other.id)
+  expect(first.references).toEqual([target])
+  expect(first.assetIds).toHaveLength(1)
+  expect(first.description).toBe(body)
+  if (isMobile) await editor.setViewportSize({ width: 320, height: 568 })
+  await noOverflow(editor)
+  for (const control of [editor.getByRole('combobox', { name: '所属项目' }), editor.getByRole('button', { name: '记录日期', exact: true }), editor.getByRole('checkbox', { name: '不设日期', exact: true })]) {
+    expect(await control.evaluate(element => { const box = element.getBoundingClientRect(); return box.left >= 0 && box.right <= window.innerWidth })).toBe(true)
+  }
+  const textarea = editor.getByRole('textbox', { name: '描述' })
+  expect(await textarea.evaluate(element => element.scrollHeight <= element.clientHeight + 2)).toBe(true)
+  await editor.screenshot({ path: testInfo.outputPath('entry-independent-editor.png'), fullPage: true, animations: 'disabled' })
+  await editor.getByRole('textbox', { name: '事项标题' }).fill('独立窗口第二次保存')
+  await expect(editor.locator('.entry-edit-status')).toContainText('有未保存的修改')
+  await editor.getByRole('checkbox', { name: '不设日期', exact: true }).check()
+  await editor.getByRole('button', { name: '标为完成', exact: true }).click()
+  await editor.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(editor.locator('.entry-edit-status')).toContainText('已保存并与云端同步')
+  await expect(editor.getByRole('textbox', { name: '事项标题' })).toHaveValue('独立窗口第二次保存')
+  expect((await space.agenda()).entries.find(entry => entry.id === id)).toMatchObject({ date: null, completed: true })
+  await expect(card).toBeHidden()
+  expect(methods).toEqual(['PUT', 'PUT'])
+
+  // Both page and modal drafts survive a notification from another editor.
+  await editor.getByRole('textbox', { name: '描述' }).fill('保留未保存的独立窗口草稿')
+  await switchWorkspaceView(page, '项目总览')
+  await page.getByRole('button', { name: '已完成 1', exact: true }).click()
+  await card.getByRole('button', { name: '编辑事项 独立窗口第二次保存' }).click()
+  await dialog.getByRole('textbox', { name: '事项标题' }).fill('保留未保存的弹窗草稿')
+  const conflicting = await page.context().newPage()
+  await conflicting.goto(`/?editEntry=${id}`)
+  await conflicting.getByRole('textbox', { name: '事项标题' }).fill('另一个窗口已保存')
+  await conflicting.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(conflicting.locator('.entry-edit-status')).toContainText('已保存并与云端同步')
+  await expect(editor.getByRole('alert')).toContainText('云端事项已变更')
+  await expect(editor.getByRole('textbox', { name: '描述' })).toHaveValue('保留未保存的独立窗口草稿')
+  await expect(editor.getByRole('button', { name: '保存', exact: true })).toBeDisabled()
+  await expect(dialog.getByRole('alert')).toContainText('云端事项已变更')
+  await expect(dialog.getByRole('textbox', { name: '事项标题' })).toHaveValue('保留未保存的弹窗草稿')
+  await dialog.getByRole('button', { name: '取消', exact: true }).click()
+  editor.once('dialog', confirmation => confirmation.dismiss())
+  await editor.getByRole('button', { name: '重新加载事项' }).click()
+  await expect(editor.getByRole('textbox', { name: '描述' })).toHaveValue('保留未保存的独立窗口草稿')
+  editor.once('dialog', confirmation => confirmation.accept())
+  await editor.getByRole('button', { name: '重新加载事项' }).click()
+  await expect(editor.getByRole('textbox', { name: '事项标题' })).toHaveValue('另一个窗口已保存')
+  await expect(editor.getByRole('textbox', { name: '描述' })).toHaveValue(body)
+  await expect(editor.getByRole('button', { name: '保存', exact: true })).toBeEnabled()
+  await conflicting.close()
+  await editor.getByRole('button', { name: '删除事项', exact: true }).click()
+  await editor.getByRole('button', { name: '确认删除事项', exact: true }).click()
+  await expect(editor.getByRole('heading', { name: '事项已删除' })).toBeVisible()
+  await expect(card).toBeHidden()
+  await editor.close()
+})
+
+test('事项独立窗口：新建默认值、保存失败、同步重试不重复新建与邮箱隔离', async ({ page, space, otherSpace }) => {
+  await page.clock.setFixedTime(new Date('2026-09-13T04:00:00Z'))
+  const project = await space.project('独立新建项目')
+  await otherSpace.project('独立其他空间')
+  await enter(page, space.email)
+  await switchWorkspaceView(page, '项目总览')
+  await page.getByRole('button', { name: '为 独立新建项目 添加事项' }).click()
+  // Returning a field to its original value must not ask about unsaved edits.
+  const dialog = page.getByRole('dialog', { name: '添加事项', exact: true })
+  await dialog.getByRole('textbox', { name: '事项标题' }).fill('已经撤回的修改')
+  await dialog.getByRole('textbox', { name: '事项标题' }).fill('')
+  let warnings = 0
+  page.on('dialog', async confirmation => { warnings++; await confirmation.dismiss() })
+  const popup = page.waitForEvent('popup')
+  await dialog.getByRole('button', { name: '在新标签页编辑' }).click()
+  const editor = await popup
+  await expect(dialog).toBeHidden()
+  expect(warnings).toBe(0)
+  await expect(editor.getByRole('textbox', { name: '事项标题' })).toHaveValue('')
+  await expect(editor.getByRole('combobox', { name: '所属项目' })).toContainText(project.name)
+  await expect(editor.getByRole('checkbox', { name: '不设日期', exact: true })).toBeChecked()
+  const methods: string[] = []
+  editor.on('request', request => { if (/\/api\/entries(?:\/[^/]+)?$/.test(request.url()) && request.method() !== 'GET') methods.push(request.method()) })
+  await editor.getByRole('textbox', { name: '事项标题' }).fill('独立窗口新建')
+  await editor.getByRole('textbox', { name: '描述' }).fill('失败后仍然保留的草稿')
+  await editor.route('**/api/entries', route => route.abort('failed'), { times: 1 })
+  await editor.getByRole('button', { name: '添加事项', exact: true }).click()
+  await expect(editor.getByRole('alert')).toContainText('连接云端失败')
+  await expect(editor.getByRole('textbox', { name: '描述' })).toHaveValue('失败后仍然保留的草稿')
+  expect((await space.agenda()).entries).toHaveLength(0)
+  await editor.route('**/api/agenda', route => route.abort('failed'), { times: 1 })
+  await editor.getByRole('button', { name: '添加事项', exact: true }).click()
+  await expect(editor.getByRole('alert')).toContainText('事项已写入云端，但同步确认失败')
+  const saved = (await space.agenda()).entries
+  expect(saved).toHaveLength(1)
+  const id = saved[0]!.id
+  await expect(editor).toHaveURL(url => url.search === `?editEntry=${id}` && url.hash === '')
+  await expect(editor.getByRole('button', { name: '添加事项', exact: true })).toBeDisabled()
+  await expect(page.locator(`#entry-${id}`)).toContainText('独立窗口新建')
+  await editor.getByRole('button', { name: '重试同步', exact: true }).click()
+  await expect(editor.locator('.entry-edit-status')).toContainText('已保存并与云端同步')
+  await expect(editor.getByRole('button', { name: '保存', exact: true })).toBeEnabled()
+  await switchSpace(page, otherSpace.email)
+  await editor.getByRole('textbox', { name: '事项标题' }).fill('独立窗口继续更新')
+  await editor.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(editor.locator('.entry-edit-status')).toContainText('已保存并与云端同步')
+  expect(methods).toEqual(['POST', 'POST', 'PUT'])
+  expect((await space.agenda()).entries).toHaveLength(1)
+  expect((await space.agenda()).entries[0]?.title).toBe('独立窗口继续更新')
+  expect((await otherSpace.agenda()).entries).toHaveLength(0)
+  await expect(page.getByRole('navigation', { name: '项目筛选' })).toContainText('独立其他空间')
+  await editor.reload()
+  await expect(editor.getByRole('heading', { name: '找不到这个事项' })).toBeVisible()
+  await editor.evaluate(email => localStorage.setItem('agenda:email', email), space.email)
+  await editor.reload()
+  await expect(editor.getByRole('textbox', { name: '事项标题' })).toHaveValue('独立窗口继续更新')
+  await editor.close()
+  await switchWorkspaceView(page, '项目日历')
+  await page.locator('.add-main').click()
+  const datedPopup = page.waitForEvent('popup')
+  await dialog.getByRole('button', { name: '在新标签页编辑' }).click()
+  const dated = await datedPopup
+  await expect(dialog).toBeHidden()
+  await expect(dated.getByRole('checkbox', { name: '不设日期', exact: true })).not.toBeChecked()
+  await expect(dated.getByRole('button', { name: '记录日期', exact: true })).toHaveText('2026-09-13')
+  await expect(dated.getByRole('combobox', { name: '所属项目' })).toContainText('独立其他空间')
+  await dated.close()
+})
+
+test('事项独立窗口：加密交接仅使用云端正文、连续改密保存与独立打印', async ({ page, space, isMobile }, testInfo) => {
+  test.setTimeout(90_000)
+  await page.clock.setFixedTime(new Date('2026-09-13T04:00:00Z'))
+  const project = await space.project('独立加密编辑')
+  const id = await space.entry(project.id, '独立加密事项', '2026-09-13')
+  const original = (await space.agenda()).entries.find(entry => entry.id === id)!
+  const password = '独立窗口原始密码123'
+  const nextPassword = '独立窗口新密码456'
+  const sealed = (await encryptDescription('云端已保存的加密正文', password)).encryptedDescription
+  expect((await space.api.put(`/api/entries/${id}`, { data: { ...original, encryptedDescription: sealed } })).ok()).toBe(true)
+  await enter(page, space.email)
+  const card = page.locator(`#entry-${id}`)
+  await card.getByRole('button', { name: '编辑事项 独立加密事项' }).click()
+  const dialog = page.getByRole('dialog', { name: '编辑事项', exact: true })
+  await dialog.getByLabel('解锁密码').fill(password)
+  await dialog.getByRole('button', { name: '解锁描述', exact: true }).click()
+  await expect(dialog.getByRole('textbox', { name: '描述' })).toHaveValue('云端已保存的加密正文')
+  await recordPrintHandoffs(page)
+  let warnings = 0
+  page.on('dialog', async confirmation => { warnings++; await confirmation.dismiss() })
+  const popup = page.waitForEvent('popup')
+  await dialog.getByRole('button', { name: '在新标签页编辑' }).click()
+  const editor = await popup
+  await expect(dialog).toBeHidden()
+  expect(warnings).toBe(0)
+  await expect(editor.getByRole('textbox', { name: '描述' })).toHaveValue('云端已保存的加密正文')
+  await expect(editor).toHaveURL(url => url.search === `?editEntry=${id}` && url.hash === '')
+  const handoffs = await page.evaluate(() => (window as unknown as { printHandoffs: { keys: { extractable: boolean; serialized: string }[] } }).printHandoffs.keys)
+  expect(handoffs).toHaveLength(1)
+  expect(handoffs[0]?.extractable).toBe(false)
+  expect(handoffs[0]?.serialized).not.toContain(password)
+  expect(handoffs[0]?.serialized).not.toContain('正文')
+  await card.getByRole('button', { name: '重新锁定描述', exact: true }).click()
+  await expect(editor.getByRole('textbox', { name: '描述' })).toHaveValue('云端已保存的加密正文')
+  const writes: string[] = []
+  editor.on('request', request => { if (request.method() === 'PUT' && request.url().endsWith(`/api/entries/${id}`)) writes.push(request.postData()!) })
+  await editor.getByRole('textbox', { name: '描述' }).fill('独立窗口首次加密保存的正文')
+  await editor.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(editor.locator('.entry-edit-status')).toContainText('已保存并与云端同步')
+  await expect(editor.getByRole('textbox', { name: '描述' })).toHaveValue('独立窗口首次加密保存的正文')
+  await editor.getByRole('button', { name: '更改加密密码', exact: true }).click()
+  await editor.getByLabel('加密密码', { exact: true }).fill(nextPassword)
+  await editor.getByLabel('确认加密密码', { exact: true }).fill(nextPassword)
+  await editor.getByRole('textbox', { name: '描述' }).fill('独立窗口改密后的正文')
+  await editor.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(editor.locator('.entry-edit-status')).toContainText('已保存并与云端同步')
+  await expect(editor.getByRole('textbox', { name: '描述' })).toHaveValue('独立窗口改密后的正文')
+  await expect(editor.getByLabel('加密密码', { exact: true })).toHaveCount(0)
+  const stored = (await space.agenda()).entries.find(entry => entry.id === id)!
+  expect((await decryptDescription(stored.encryptedDescription!, nextPassword)).description).toBe('独立窗口改密后的正文')
+  for (const write of writes) {
+    expect(JSON.parse(write).description).toBe('')
+    expect(write).not.toContain('正文')
+    expect(write).not.toContain(password)
+    expect(write).not.toContain(nextPassword)
+  }
+  const storage = await editor.evaluate(() => JSON.stringify([Object.entries(localStorage), Object.entries(sessionStorage)]))
+  expect(storage).not.toContain('正文')
+  expect(storage).not.toContain(password)
+  expect(storage).not.toContain(nextPassword)
+  if (isMobile) await editor.setViewportSize({ width: 320, height: 568 })
+  await noOverflow(editor)
+  await editor.screenshot({ path: testInfo.outputPath('entry-independent-encryption.png'), fullPage: true, animations: 'disabled' })
+  const printPopup = editor.waitForEvent('popup')
+  await editor.getByRole('button', { name: '导出已保存事项' }).click()
+  const print = await printPopup
+  await expect(print.locator('.entry-description')).toHaveText('独立窗口改密后的正文')
+  await print.close()
+  await page.close()
+  await editor.getByRole('textbox', { name: '描述' }).fill('关闭工作台后继续保存的正文')
+  await editor.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(editor.locator('.entry-edit-status')).toContainText('已保存并与云端同步')
+  await editor.reload()
+  await expect(editor.getByLabel('解锁密码')).toBeVisible()
+  await editor.getByRole('textbox', { name: '事项标题' }).fill('锁定元数据编辑')
+  const beforeMetadata = (await space.agenda()).entries.find(entry => entry.id === id)!.encryptedDescription
+  await editor.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(editor.locator('.entry-edit-status')).toContainText('已保存并与云端同步')
+  await expect(editor.getByLabel('解锁密码')).toBeVisible()
+  expect((await space.agenda()).entries.find(entry => entry.id === id)?.encryptedDescription).toEqual(beforeMetadata)
+  await editor.close()
+})
+
+test('事项独立窗口：弹窗拦截与加载失败保留原草稿、通信缺失回退', async ({ page, space }) => {
+  test.setTimeout(90_000)
+  await page.clock.install({ time: new Date('2026-09-13T04:00:00Z') })
+  const project = await space.project('独立打开边界')
+  const id = await space.entry(project.id, '独立打开事项', '2026-09-13', [], '边界云端正文')
+  await enter(page, space.email)
+  await page.locator(`#entry-${id}`).getByRole('button', { name: '编辑事项 独立打开事项' }).click()
+  const dialog = page.getByRole('dialog', { name: '编辑事项', exact: true })
+  await dialog.getByRole('textbox', { name: '描述' }).fill('打开失败不能丢失的草稿')
+  await page.evaluate(() => {
+    ;(window as unknown as { originalEditorOpen: typeof window.open }).originalEditorOpen = window.open
+    window.open = () => null
+  })
+  page.once('dialog', confirmation => confirmation.accept())
+  await dialog.getByRole('button', { name: '在新标签页编辑' }).click()
+  await expect(dialog.getByRole('button', { name: '在新标签页编辑' })).toBeDisabled()
+  await page.clock.runFor(30_001)
+  await expect(dialog.getByRole('alert')).toContainText('未收到编辑标签页的打开确认')
+  await expect(dialog.getByRole('textbox', { name: '描述' })).toHaveValue('打开失败不能丢失的草稿')
+  await page.evaluate(() => { window.open = (window as unknown as { originalEditorOpen: typeof window.open }).originalEditorOpen })
+  await page.context().route('**/api/agenda', route => route.abort('failed'), { times: 1 })
+  page.once('dialog', confirmation => confirmation.accept())
+  const popup = page.waitForEvent('popup')
+  await dialog.getByRole('button', { name: '在新标签页编辑' }).click()
+  const editor = await popup
+  await expect(editor.getByRole('heading', { name: '事项加载失败' })).toBeVisible()
+  await expect(dialog.getByRole('textbox', { name: '描述' })).toHaveValue('打开失败不能丢失的草稿')
+  await editor.getByRole('button', { name: '重试', exact: true }).click()
+  await expect(editor.getByRole('textbox', { name: '描述' })).toHaveValue('边界云端正文')
+  await expect(dialog).toBeHidden()
+  await editor.close()
+  await page.evaluate(() => { Object.defineProperty(window, 'BroadcastChannel', { value: undefined, configurable: true }) })
+  await page.locator(`#entry-${id}`).getByRole('button', { name: '编辑事项 独立打开事项' }).click()
+  const fallbackPopup = page.waitForEvent('popup')
+  await dialog.getByRole('button', { name: '在新标签页编辑' }).click()
+  const fallback = await fallbackPopup
+  await expect(fallback.getByRole('textbox', { name: '描述' })).toHaveValue('边界云端正文')
+  await expect(dialog.getByRole('alert')).toContainText('手动关闭此弹窗')
+  await dialog.getByRole('button', { name: '取消', exact: true }).click()
+  await fallback.close()
+})
+
 test('可选描述加密、锁定编辑、解锁共享、改密、取消加密与独立打印', async ({ page, space, isMobile }, testInfo) => {
   test.setTimeout(90_000)
   await page.clock.install({ time: new Date('2026-09-13T04:00:00Z') })
@@ -2284,6 +2686,147 @@ test('legacy 引用保留/移除/转为标记，目标改名删除后展示与�
   await edit()
   await save()
   expect(await current()).toMatchObject({ description: serializeMention({ id: target, title: '旧标题' }), references: [] })
+})
+
+test('长描述中间输入保持光标与滚动位置，弹窗与新标签页均适用', async ({ page, space, isMobile }, testInfo) => {
+  await page.clock.setFixedTime(new Date('2026-09-13T04:00:00Z'))
+  const project = await space.project('光标位置项目')
+  const body = Array.from({ length: 500 }, (_, index) => `第${String(index).padStart(3, '0')}行 固定正文\n`).join('')
+  const id = await space.entry(project.id, '长描述光标事项', '2026-09-13', [], body)
+  const target = await space.entry(project.id, '光标引用目标', null)
+  if (isMobile) await page.setViewportSize({ width: 320, height: 844 })
+  await enter(page, space.email)
+
+  async function state(input: Locator) {
+    return input.evaluate(async element => {
+      await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+      const textarea = element as HTMLTextAreaElement
+      const scroller = textarea.closest<HTMLElement>('.dialog-inner') || document.scrollingElement!
+      const style = getComputedStyle(textarea)
+      const line = textarea.value.slice(0, textarea.selectionStart).split('\n').length - 1
+      return {
+        start: textarea.selectionStart, end: textarea.selectionEnd, direction: textarea.selectionDirection, scroll: scroller.scrollTop,
+        innerScroll: textarea.scrollTop,
+        height: textarea.clientHeight, lineHeight: parseFloat(style.lineHeight),
+        caretY: textarea.getBoundingClientRect().top + parseFloat(style.paddingTop) + (line + 0.5) * parseFloat(style.lineHeight) - textarea.scrollTop,
+      }
+    })
+  }
+
+  for (const mode of ['dialog', 'tab']) {
+    let editingPage = page
+    if (mode === 'dialog') await page.locator(`#entry-${id}`).getByRole('button', { name: '编辑事项 长描述光标事项', exact: true }).click()
+    else {
+      const popup = page.waitForEvent('popup')
+      await page.locator(`#entry-${id}`).getByRole('button', { name: '在新标签页编辑 长描述光标事项', exact: true }).click()
+      editingPage = await popup
+    }
+    const input = editingPage.getByRole('textbox', { name: '描述' })
+    await expect(input).toHaveValue(body)
+    // Set the dirty-state notice before measuring, so its insertion is not part of the resize.
+    await editingPage.getByRole('textbox', { name: '事项标题' }).fill('光标位置草稿')
+    await expect.poll(() => input.evaluate(element => element.scrollHeight <= element.clientHeight + 1)).toBe(true)
+    const position = body.indexOf('第220行 ') + '第220行 '.length
+    await input.evaluate((element, position) => {
+      const textarea = element as HTMLTextAreaElement
+      textarea.focus({ preventScroll: true })
+      textarea.setSelectionRange(position, position)
+      textarea.scrollTop = 0
+      const scroller = textarea.closest<HTMLElement>('.dialog-inner') || document.scrollingElement!
+      const style = getComputedStyle(textarea)
+      const line = textarea.value.slice(0, position).split('\n').length - 1
+      const caretY = textarea.getBoundingClientRect().top + parseFloat(style.paddingTop) + (line + 0.5) * parseFloat(style.lineHeight)
+      const center = scroller === document.scrollingElement ? window.innerHeight / 2 : scroller.getBoundingClientRect().top + scroller.clientHeight / 2
+      scroller.scrollTop += caretY - center
+    }, position)
+    let text = body
+    let caret = position
+    for (const character of ['a', 'b', 'c']) {
+      const before = await state(input)
+      await editingPage.keyboard.press(character)
+      text = text.slice(0, caret) + character + text.slice(caret)
+      caret++
+      const after = await state(input)
+      expect(after.start, `${mode}: ${JSON.stringify({ before, after })}`).toBe(caret)
+      expect(after.end).toBe(caret)
+      expect(Math.abs(after.caretY - before.caretY), `${mode}: ${JSON.stringify({ before, after })}`).toBeLessThan(3)
+      expect(after.innerScroll).toBe(0)
+      await expect(input).toHaveValue(text)
+    }
+    await editingPage.screenshot({ path: testInfo.outputPath(`long-description-caret-${mode}.png`), animations: 'disabled' })
+
+    // A resize must preserve a backward selection; replacement and native undo remain usable.
+    await input.evaluate((element, position) => (element as HTMLTextAreaElement).setSelectionRange(position, position + 3, 'backward'), position)
+    const viewport = editingPage.viewportSize()!
+    await editingPage.setViewportSize({ ...viewport, height: viewport.height - 40 })
+    expect(await state(input)).toMatchObject({ start: position, end: position + 3, direction: 'backward' })
+    await editingPage.setViewportSize(viewport)
+    const beforeReplace = await state(input)
+    const beforeReplaceText = text
+    await editingPage.keyboard.insertText('替换')
+    text = text.slice(0, position) + '替换' + text.slice(position + 3)
+    caret = position + 2
+    await expect(input).toHaveValue(text)
+    const replaced = await state(input)
+    expect(replaced).toMatchObject({ start: caret, end: caret })
+    expect(Math.abs(replaced.caretY - beforeReplace.caretY)).toBeLessThan(3)
+    await editingPage.keyboard.press('ControlOrMeta+z')
+    await expect(input).toHaveValue(beforeReplaceText)
+    const undone = await state(input)
+    expect(undone.start).toBeGreaterThanOrEqual(position)
+    expect(undone.end).toBeLessThanOrEqual(position + 3)
+    await editingPage.keyboard.press('ControlOrMeta+Shift+z')
+    await expect(input).toHaveValue(text)
+    expect((await state(input)).end).toBe(caret)
+
+    const beforeNewline = await state(input)
+    await editingPage.keyboard.press('Enter')
+    text = text.slice(0, caret) + '\n' + text.slice(caret)
+    caret++
+    const newline = await state(input)
+    expect(newline).toMatchObject({ start: caret, end: caret })
+    expect(Math.abs(newline.caretY - beforeNewline.caretY - beforeNewline.lineHeight)).toBeLessThan(3)
+    expect(newline.height).toBeGreaterThan(beforeNewline.height)
+    const pasted = '粘贴一行\n粘贴二行'
+    await editingPage.keyboard.insertText(pasted)
+    text = text.slice(0, caret) + pasted + text.slice(caret)
+    caret += pasted.length
+    expect(await state(input)).toMatchObject({ start: caret, end: caret, innerScroll: 0 })
+    await expect(input).toHaveValue(text)
+    const beforeDelete = await state(input)
+    await editingPage.keyboard.press('Backspace')
+    text = text.slice(0, caret - 1) + text.slice(caret)
+    caret--
+    expect((await state(input)).start).toBe(caret)
+    expect(Math.abs((await state(input)).caretY - beforeDelete.caretY)).toBeLessThan(3)
+
+    // Exercise the same composition event contract as the existing IME regression.
+    const beforeComposition = await state(input)
+    await input.dispatchEvent('compositionstart')
+    await editingPage.keyboard.insertText('中文输入')
+    text = text.slice(0, caret) + '中文输入' + text.slice(caret)
+    caret += '中文输入'.length
+    await input.dispatchEvent('compositionend')
+    const composed = await state(input)
+    expect(composed).toMatchObject({ start: caret, end: caret, innerScroll: 0 })
+    expect(Math.abs(composed.caretY - beforeComposition.caretY)).toBeLessThan(3)
+    await expect(input).toHaveValue(text)
+
+    await input.evaluate((element, position) => (element as HTMLTextAreaElement).setSelectionRange(position, position), position)
+    const beforeMention = await state(input)
+    await editingPage.keyboard.insertText('@')
+    await expect(editingPage.getByRole('listbox', { name: '引用事项候选' }).getByRole('option')).toHaveCount(1)
+    await editingPage.keyboard.press('Enter')
+    const marker = serializeMention({ id: target, title: '光标引用目标' })
+    text = text.slice(0, position) + marker + text.slice(position)
+    await expect(input).toHaveValue(text)
+    const mentioned = await state(input)
+    expect(mentioned).toMatchObject({ start: position + marker.length, end: position + marker.length, innerScroll: 0 })
+    expect(Math.abs(mentioned.scroll - beforeMention.scroll)).toBeLessThan(beforeMention.lineHeight * 3)
+    await expect.poll(() => input.evaluate(element => element.scrollHeight <= element.clientHeight + 1)).toBe(true)
+    if (mode === 'dialog') await editingPage.getByRole('button', { name: '取消', exact: true }).click()
+    else await editingPage.close()
+  }
 })
 
 test('长描述详情不溢出，桌面 tooltip 悬停/键盘聚焦及 viewport 边界', async ({ page, space, isMobile }, testInfo) => {

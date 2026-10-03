@@ -8,6 +8,13 @@ import { matchesOverviewTitleSearch } from '~/utils/overviewSearch'
 const email = ref('')
 const hydrated = ref(false)
 const printEntryId = ref('')
+const editMode = ref(false)
+const editEntryId = ref('')
+const createInWindow = ref(false)
+const editDefaultDate = ref<string | null>(null)
+const editDefaultProject = ref('')
+let editSessionToken = ''
+let editSessionEntryId = ''
 const today = ref(dateKey(new Date()))
 const selected = ref(today.value)
 const view = ref<'month' | 'week' | 'day'>('month')
@@ -25,26 +32,43 @@ const { data, loading, saving, reordering, error, syncedAt, refresh, saveProject
 const agendaEntries = computed(() => data.value.entries)
 const encryption = provideEntryEncryption(email, agendaEntries)
 const printUnlock = usePrintUnlockTransfer(email, agendaEntries, encryption)
+const editUnlock = useEntryUnlockTransfer(email, agendaEntries, encryption, 'edit')
+const editorWindow = useEntryEditorWindow(email)
+const { opening: editorOpening, error: editorWindowError } = editorWindow
+let dialogTabPending = false
 watch(email, () => { entryEditor.value = null; projectEditor.value = null }, { flush: 'sync' })
-watch(() => data.value.entries, entries => {
-  const editing = entryEditor.value?.entry
-  if (!editing) return
-  const latest = entries.find(entry => entry.id === editing.id)
-  if (!latest || JSON.stringify(latest.encryptedDescription) !== JSON.stringify(editing.encryptedDescription)) entryEditor.value = null
+watch(entryEditor, editor => {
+  if (!editor && dialogTabPending) { editorWindow.cancel(); dialogTabPending = false }
 })
 let clock: ReturnType<typeof setInterval> | undefined
 
-onMounted(() => {
-  printEntryId.value = new URLSearchParams(window.location.search).get('printEntry') || ''
+onMounted(async () => {
+  const query = new URLSearchParams(window.location.search)
+  printEntryId.value = query.get('printEntry') || ''
+  editMode.value = !printEntryId.value && (query.has('editEntry') || query.get('newEntry') === '1')
+  editEntryId.value = query.get('editEntry') || ''
+  createInWindow.value = query.get('newEntry') === '1' && !query.has('editEntry')
+  editDefaultProject.value = query.get('project') || ''
+  const date = query.get('date') || ''
+  if (/^\d{4}-\d{2}-\d{2}$/.test(date) && dateKey(parseDate(date)) === date && Number(date.slice(0, 4)) > 0) editDefaultDate.value = date
   const fragment = new URLSearchParams(window.location.hash.slice(1))
   const printUnlockToken = fragment.get('printUnlock')
-  if (printUnlockToken !== null) {
-    fragment.delete('printUnlock')
+  const editUnlockToken = fragment.get('editUnlock')
+  editSessionToken = fragment.get('editSession') || ''
+  editSessionEntryId = editEntryId.value
+  if (['printUnlock', 'editUnlock', 'editSession'].some(key => fragment.has(key))) {
+    for (const key of ['printUnlock', 'editUnlock', 'editSession']) fragment.delete(key)
     const remaining = fragment.toString()
     window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}${remaining ? `#${remaining}` : ''}`)
   }
-  try { email.value = localStorage.getItem('agenda:email') || '' } catch { /* Storage is optional. */ }
+  let rememberedEmail = ''
+  try { rememberedEmail = localStorage.getItem('agenda:email') || '' } catch { /* Storage is optional. */ }
+  // An already-open workspace can differ from the most recently remembered account.
+  email.value = editMode.value && editSessionToken
+    ? await editorWindow.receiveContext(editSessionToken, editSessionEntryId) || ''
+    : rememberedEmail
   if (printUnlockToken) printUnlock.receiveExport(printEntryId.value, printUnlockToken)
+  if (editMode.value && editUnlockToken) editUnlock.receiveExport(editEntryId.value, editUnlockToken)
   if (window.matchMedia('(max-width: 600px)').matches) view.value = 'week'
   hydrated.value = true
   clock = setInterval(() => { today.value = dateKey(new Date()) }, 60_000)
@@ -126,6 +150,37 @@ function exportEntry(entry: Entry) {
   const token = printUnlock.prepareExport(entry)
   window.open(`/?printEntry=${encodeURIComponent(entry.id)}${token ? `#printUnlock=${token}` : ''}`, '_blank', 'noopener')
 }
+function openEntryWindow(editing: Entry | undefined) {
+  const source = entryEditor.value
+  if (!source) return
+  dialogTabPending = true
+  const latest = data.value.entries.find(entry => entry.id === editing?.id)
+  const token = latest ? editUnlock.prepareExport(latest) : ''
+  editorWindow.open(editing?.id || '', source.date, source.projectId, token, () => {
+    if (entryEditor.value === source) entryEditor.value = null
+  })
+}
+function openEntryTab(entry: Entry) {
+  if (editorOpening.value || loading.value || saving.value) return
+  const latest = data.value.entries.find(item => item.id === entry.id)
+  if (!latest) return
+  dialogTabPending = false
+  const token = editUnlock.prepareExport(latest)
+  editorWindow.open(latest.id, latest.date, latest.projectId, token, () => {}, false)
+}
+function editWindowReady() {
+  if (!editSessionToken) return
+  editorWindow.announceReady(editSessionToken, editSessionEntryId)
+  editSessionToken = ''
+}
+function updateEditEntryId(id: string) {
+  editEntryId.value = id
+  createInWindow.value = false
+  const url = new URL(window.location.href)
+  for (const key of ['newEntry', 'project', 'date']) url.searchParams.delete(key)
+  url.searchParams.set('editEntry', id)
+  window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`)
+}
 async function submitEntry(input: EntryInput, id?: string, onSaved?: (result: EntrySaveResult) => void) {
   const saved = await saveEntry(input, id, onSaved)
   if (saved && input.date === null) {
@@ -158,6 +213,8 @@ function followReference(entry: Entry | undefined) {
 
   <EntryPrintPage v-else-if="printEntryId" :entry-id="printEntryId" :email="email" :projects="data.projects" :entries="data.entries" :assets="data.assets" :loading="loading" :error="error" :synced="!!syncedAt" @retry="refresh" @enter="enterAccount" />
 
+  <EntryEditPage v-else-if="editMode" :entry-id="editEntryId" :creating="createInWindow" :date="editDefaultDate" :project-id="editDefaultProject" :email="email" :projects="data.projects" :entries="data.entries" :assets="data.assets" :loading="loading" :error="error" :synced="!!syncedAt" :upload="uploadAsset" :submit="saveEntry" :remove="deleteEntry" @retry="refresh" @enter="enterAccount" @ready="editWindowReady" @change-id="updateEditEntryId" @export="exportEntry" />
+
   <main v-else-if="!email" class="welcome">
     <section class="welcome-content"><a class="brand welcome-brand" href="/"><span class="brand-mark"><AppIcon name="spark" :size="25" /></span><span>日迹<span class="brand-en">HOSHINO’S AGENDA</span></span></a><div class="welcome-copy"><h1>项目日历</h1><p>输入邮箱，打开对应的项目和事项。</p></div><EmailForm @submit="enterAccount" /></section>
   </main>
@@ -174,9 +231,10 @@ function followReference(entry: Entry | undefined) {
       <header class="topbar"><nav class="breadcrumb" aria-label="工作台导航"><AppIcon name="grid" :size="16" /><span class="breadcrumb-home">我的工作台</span><span class="breadcrumb-slash">/</span><WorkspaceViewSelect v-model="workspaceView" /></nav><button class="sync-button" :disabled="loading || saving" :title="syncedAt ? `上次同步：${syncedAt.toLocaleDateString('zh-CN')} ${syncedTime}` : '从云端读取数据'" @click="refresh"><span class="status-dot" :class="{ 'status-error': error, 'status-busy': loading || saving }" /><span>{{ saving ? '正在保存' : loading ? '正在同步' : error ? '同步失败 · 重试' : syncedAt ? `已与云端同步 · ${syncedTime}` : '同步数据' }}</span><AppIcon name="refresh" :size="14" :class="{ spinning: loading }" /></button></header>
       <main class="workspace" :class="{ 'day-view': workspaceView === 'calendar' && view === 'day' }">
         <div v-if="error" class="error-banner" role="alert"><span>{{ error }}</span><button class="text-button" :disabled="loading || saving" @click="refresh">重试</button></div>
+        <div v-if="editorWindowError && !entryEditor" class="error-banner" role="alert"><span>{{ editorWindowError }}</span><button class="icon-button" aria-label="关闭编辑标签页提示" @click="editorWindow.cancel()"><AppIcon name="close" :size="16" /></button></div>
 
         <AssetLibrary v-if="workspaceView === 'assets'" :assets="data.assets" :entries="data.entries" :projects="data.projects" :email="email" :loading="loading" :busy="loading || saving" :upload="uploadAsset" :remove="deleteAsset" :rename="renameAsset" @follow="followReference" />
-        <ProjectOverview v-else-if="workspaceView === 'overview'" v-model:show-completed="showCompletedProjects" v-model:date-filter="overviewDateFilter" v-model:title-search="overviewTitleSearch" :projects="data.projects" :entries="data.entries" :assets="data.assets" :email="email" :active-project="activeProject" :busy="loading || saving" :loading="loading" @add="addEntry(null, $event)" @create-project="projectEditor = {}" @edit-project="projectEditor = { project: $event }" @edit="editEntry" @export="exportEntry" @toggle="toggleEntry" @follow="followReference" />
+        <ProjectOverview v-else-if="workspaceView === 'overview'" v-model:show-completed="showCompletedProjects" v-model:date-filter="overviewDateFilter" v-model:title-search="overviewTitleSearch" :projects="data.projects" :entries="data.entries" :assets="data.assets" :email="email" :active-project="activeProject" :busy="loading || saving" :loading="loading" :tab-opening="editorOpening" @add="addEntry(null, $event)" @create-project="projectEditor = {}" @edit-project="projectEditor = { project: $event }" @edit="editEntry" @window="openEntryTab" @export="exportEntry" @toggle="toggleEntry" @follow="followReference" />
         <template v-else>
         <section class="calendar-card" :aria-busy="loading">
           <header class="calendar-toolbar">
@@ -205,7 +263,7 @@ function followReference(entry: Entry | undefined) {
         <section class="day-panel" aria-labelledby="day-title"><header class="day-panel-heading"><div class="day-title-group"><span class="day-icon"><AppIcon name="calendar" :size="20" /></span><div><h2 id="day-title">{{ formatDate(selected) }}<span v-if="selected === today" class="today-badge">今天</span></h2><p>{{ selectedEntries.length }} 个事项，已完成 {{ selectedCompleted }} 个</p></div></div><button class="button secondary" :disabled="loading || saving" @click="addEntry()"><AppIcon name="plus" :size="16" />事项</button></header>
           <div v-if="loading && !syncedAt" class="day-empty"><AppIcon name="refresh" class="spinning" :size="25" /><p>正在从云端取回你的记录…</p></div>
           <div v-else-if="!selectedEntries.length" class="day-empty"><h3>{{ data.projects.length ? '当天暂无事项' : '(空)' }}</h3><p v-if="!data.projects.length">创建项目后即可添加事项。</p><button class="text-button" :disabled="loading || saving" @click="data.projects.length ? addEntry() : projectEditor = {}">{{ data.projects.length ? '添加事项' : '创建项目' }}<AppIcon name="arrow" :size="15" /></button></div>
-          <EntryList v-else :entries="selectedEntries" :all-entries="data.entries" :projects="data.projects" :assets="data.assets" :email="email" :busy="loading || saving" @edit="editEntry" @export="exportEntry" @toggle="toggleEntry" @follow="followReference" />
+          <EntryList v-else :entries="selectedEntries" :all-entries="data.entries" :projects="data.projects" :assets="data.assets" :email="email" :busy="loading || saving" :tab-opening="editorOpening" @edit="editEntry" @window="openEntryTab" @export="exportEntry" @toggle="toggleEntry" @follow="followReference" />
         </section>
         </template>
       </main>
@@ -214,7 +272,7 @@ function followReference(entry: Entry | undefined) {
     <AppDialog v-if="showAccount" title="回到你的数据空间" @close="showAccount = false"><p class="account-description">输入邮箱，提取对应的项目和日历记录。</p><EmailForm :initial="email" @submit="enterAccount" /></AppDialog>
     <ProjectOrderEditor v-if="showProjectOrder" :projects="data.projects" :submit="reorderProjects" :error="error" @close="showProjectOrder = false" />
     <ProjectEditor v-if="projectEditor" :project="projectEditor.project" :entry-count="projectEditor.project ? projectCounts.get(projectEditor.project.id) || 0 : 0" :submit="saveProject" :remove="deleteProject" @close="projectEditor = null" />
-    <EntryEditor v-if="entryEditor" :key="entryEditor.entry?.id || 'new'" :entry="entryEditor.entry" :date="entryEditor.date" :project-id="entryEditor.projectId" :projects="data.projects" :entries="data.entries" :assets="data.assets" :email="email" :upload="uploadAsset" :submit="submitEntry" :remove="deleteEntry" @export="exportEntry" @close="entryEditor = null" />
+    <EntryEditor v-if="entryEditor" :key="entryEditor.entry?.id || 'new'" :entry="entryEditor.entry" :date="entryEditor.date" :project-id="entryEditor.projectId" :projects="data.projects" :entries="data.entries" :assets="data.assets" :email="email" :upload="uploadAsset" :submit="submitEntry" :remove="deleteEntry" :opening="editorOpening" :window-error="editorWindowError" @window="openEntryWindow" @export="exportEntry" @close="entryEditor = null" />
   </div>
   </UApp>
 </template>

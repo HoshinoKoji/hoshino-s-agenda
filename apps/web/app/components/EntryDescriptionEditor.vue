@@ -34,9 +34,19 @@ const activeId = computed(() => query.value && candidates.value[active.value] ? 
 function close() { query.value = null }
 function fitTextarea() {
   const input = textarea.value
-  if (!input) return
+  if (!input?.isConnected) return
+  // Temporarily shrinking a focused textarea can scroll its caret to the viewport
+  // edge. Restore each ancestor after measuring, without touching native selection.
+  const scrollPositions: { element: HTMLElement; top: number; left: number }[] = []
+  for (let element = input.parentElement; element; element = element.parentElement) {
+    scrollPositions.push({ element, top: element.scrollTop, left: element.scrollLeft })
+  }
   input.style.height = 'auto'
   input.style.height = `${input.scrollHeight + input.offsetHeight - input.clientHeight}px`
+  for (const { element, top, left } of scrollPositions) {
+    if (element.scrollTop !== top) element.scrollTop = top
+    if (element.scrollLeft !== left) element.scrollLeft = left
+  }
 }
 onMounted(() => {
   requestAnimationFrame(fitTextarea)

@@ -3,7 +3,7 @@ import type { Asset, Entry, Project } from '../../../../shared/types'
 import { matchesOverviewDateFilter, type OverviewDateFilter } from '~/utils/overviewDates'
 import { matchesOverviewTitleSearch } from '~/utils/overviewSearch'
 
-const props = defineProps<{ projects: Project[]; entries: Entry[]; assets: Asset[]; email: string; activeProject: string; busy: boolean; loading: boolean }>()
+const props = defineProps<{ projects: Project[]; entries: Entry[]; assets: Asset[]; email: string; activeProject: string; busy: boolean; loading: boolean; tabOpening?: boolean }>()
 const showCompleted = defineModel<boolean>('showCompleted', { default: false })
 const dateFilter = defineModel<OverviewDateFilter>('dateFilter', { required: true })
 const titleSearch = defineModel<string>('titleSearch', { required: true })
@@ -14,6 +14,7 @@ const emit = defineEmits<{
   createProject: []
   editProject: [project: Project]
   edit: [entry: Entry]
+  window: [entry: Entry]
   export: [entry: Entry]
   toggle: [entry: Entry]
   follow: [entry: Entry | undefined]
@@ -70,7 +71,7 @@ const emptyMessage = computed(() => {
         <div class="overview-project-title"><h3 :id="`project-title-${group.project.id}`"><i class="project-dot" :style="{ background: group.project.color }" />{{ group.project.name }}</h3><p>{{ group.entries.length }} 个事项，未完成 {{ group.remaining }} 个</p></div>
         <div class="overview-actions"><button class="icon-button" :aria-label="`编辑项目 ${group.project.name}`" :disabled="busy" @click="emit('editProject', group.project)"><AppIcon name="edit" :size="16" /></button><button class="button secondary" :aria-label="`为 ${group.project.name} 添加事项`" :disabled="busy" @click="emit('add', group.project.id)"><AppIcon name="plus" :size="16" />事项</button></div>
       </header>
-      <EntryList v-if="group.visibleEntries.length" :entries="group.visibleEntries" :all-entries="entries" :projects="projects" :assets="assets" :email="email" :busy="busy" show-date @edit="emit('edit', $event)" @export="emit('export', $event)" @toggle="emit('toggle', $event)" @follow="emit('follow', $event)" />
+      <EntryList v-if="group.visibleEntries.length" :entries="group.visibleEntries" :all-entries="entries" :projects="projects" :assets="assets" :email="email" :busy="busy" :tab-opening="tabOpening" show-date @edit="emit('edit', $event)" @window="emit('window', $event)" @export="emit('export', $event)" @toggle="emit('toggle', $event)" @follow="emit('follow', $event)" />
       <p v-else class="small-empty">暂无事项</p>
     </section>
   </section>

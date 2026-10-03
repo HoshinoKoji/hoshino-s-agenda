@@ -10,6 +10,7 @@ export function useAgenda(email: Ref<string>) {
   const syncedAt = ref<Date | null>(null)
   let generation = 0
   let accountGeneration = 0
+  const windowSync = useAgendaWindowSync(email, computed(() => loading.value || saving.value), refresh)
   watch(email, () => { accountGeneration++ }, { flush: 'sync' })
 
   async function request<T>(path: string, method = 'GET', body?: unknown, account = email.value): Promise<T> {
@@ -60,6 +61,7 @@ export function useAgenda(email: Ref<string>) {
     const currentAccount = accountGeneration
     try {
       const result = await request<T>(path, method, body, account)
+      windowSync.notify(account)
       if (currentAccount !== accountGeneration) return
       onSaved?.(result)
       await refresh()
@@ -88,6 +90,7 @@ export function useAgenda(email: Ref<string>) {
       })
       const result = await response.json() as Asset & { error?: string }
       if (!response.ok) throw new Error(result.error || '上传失败，请重试')
+      windowSync.notify(account)
       if (email.value === account) await refresh()
       return result
     } finally { saving.value = false }

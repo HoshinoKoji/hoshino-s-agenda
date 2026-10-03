@@ -374,6 +374,18 @@ button.entry-mention:hover { background: #f7d9e7; text-decoration: underline; }
   .print-section :is(p, li, blockquote, pre) { orphans: 2; widows: 2; }
 }
 
+/* Independent entry editing */
+.entry-edit-page { width: min(100%, 860px); min-height: 100dvh; margin: auto; padding: 24px 24px 48px; }
+.entry-edit-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
+.entry-edit-sheet, .entry-edit-message { background: white; border: 1px solid var(--line); border-radius: 16px; padding: 28px; min-width: 0; }
+.entry-edit-heading { margin-bottom: 26px; }
+.entry-edit-heading h1, .entry-edit-message h1 { font-size: 22px; font-weight: 500; }
+.entry-edit-heading p, .entry-edit-message > p { font-size: 12px; color: var(--muted); margin-top: 8px; overflow-wrap: anywhere; }
+.entry-edit-message .button, .entry-edit-message form { margin-top: 20px; }
+.entry-edit-status { font-size: 12px; color: #548b69; line-height: 1.8; margin-bottom: 20px; }
+.entry-edit-unsaved { color: var(--muted); }
+.entry-edit-sheet > .form-error { margin: 0 0 20px; }
+
 /* Dialogs and forms */
 body:has(dialog[open]) { overflow: hidden; }
 .dialog { margin: auto; background: white; width: min(440px, calc(100% - 32px)); max-height: calc(100dvh - 40px); padding: 16px 0; overflow: hidden; border: 1px solid var(--line); border-radius: 16px; color: inherit; box-shadow: 0 24px 100px #2f244b2b; }
@@ -388,6 +400,7 @@ body:has(dialog[open]) { overflow: hidden; }
 .dialog-inner { max-height: calc(100dvh - 74px); overflow: auto; overscroll-behavior: contain; padding: 12px 28px; }
 .dialog-header { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 26px; }
 .dialog-header h2 { font-size: 20px; font-weight: 500; }
+.dialog-header-actions { display: flex; align-items: center; gap: 6px; }
 .form-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
 .field { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; font-size: 12px; font-weight: 500; }
 .field input, .field select, .field textarea { width: 100%; min-width: 0; min-height: 43px; border: 1px solid #e5dfed; border-radius: 8px; background: #fdfcfe; padding: 10px 12px; color: #5c5368; font-weight: 400; }
@@ -483,6 +496,10 @@ input[type='checkbox'] { accent-color: var(--primary); width: 16px; height: 16px
   .welcome-content { padding: 40px 30px; }
 }
 @media (max-width: 600px) {
+  .entry-edit-page { padding: 16px 12px 28px; }
+  .entry-edit-sheet, .entry-edit-message { padding: 20px 16px; border-radius: 12px; }
+  .entry-edit-heading h1, .entry-edit-message h1 { font-size: 20px; }
+  .entry-edit-page .field-row { grid-template-columns: minmax(0, 1fr); }
   .print-page { padding: 16px 14px 40px; }
   .print-message, .print-sheet { padding: 25px 18px; }
   .print-heading h1 { font-size: 21px; }

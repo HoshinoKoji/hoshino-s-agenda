@@ -11,7 +11,7 @@ function close() { if (!props.busy) emit('close') }
     <div class="dialog-inner">
       <header class="dialog-header">
         <div><h2 id="dialog-title">{{ title }}</h2></div>
-        <button type="button" class="icon-button" aria-label="关闭弹窗" :disabled="busy" @click="close"><AppIcon name="close" /></button>
+        <div class="dialog-header-actions"><slot name="actions" /><button type="button" class="icon-button" aria-label="关闭弹窗" :disabled="busy" @click="close"><AppIcon name="close" /></button></div>
       </header>
       <slot />
     </div>
