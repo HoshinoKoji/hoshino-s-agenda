@@ -1017,6 +1017,91 @@ test('新建事项独立密码、密文更新使解锁失效、切换邮箱隔�
   await expect(card.locator('.entry-description')).toHaveCount(0)
 })
 
+test('事项素材选择：图片悬浮缩略图、键盘预览与弹窗层级', async ({ page, space, isMobile }, testInfo) => {
+  const project = await space.project('素材选择预览')
+  const id = await space.entry(project.id, '选择图片附件', null)
+  for (const file of [
+    { name: '预览图像.png', type: 'image/png', data: samplePng() },
+    { name: '普通文件.txt', type: 'text/plain', data: Buffer.from('not an image') },
+  ]) {
+    expect((await space.api.post('/api/assets', {
+      headers: { 'X-File-Name': encodeURIComponent(file.name), 'Content-Type': file.type }, data: file.data,
+    })).status()).toBe(201)
+  }
+  if (isMobile) await page.setViewportSize({ width: 320, height: 568 })
+  const imageRequests: Request[] = []
+  page.on('request', request => { if (request.url().includes('/api/assets/')) imageRequests.push(request) })
+  await enter(page, space.email)
+  await switchWorkspaceView(page, '项目总览')
+  await page.locator(`#entry-${id}`).getByRole('button', { name: '编辑事项 选择图片附件', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: '编辑事项', exact: true })
+  for (const mode of ['dialog', 'standalone']) {
+    if (mode === 'standalone') await page.goto(`/?editEntry=${id}`)
+    await page.getByRole('button', { name: '从素材库选择', exact: true }).click()
+    const search = page.getByRole('searchbox', { name: '搜索可引用素材' })
+    const option = page.locator('.entry-asset-options').getByRole('button', { name: '预览图像.png', exact: true })
+    const preview = page.locator('.asset-picker-preview')
+    await expect(preview).toBeHidden()
+    if (mode === 'dialog') expect(imageRequests).toHaveLength(0)
+    await search.fill('预览图像')
+    if (!isMobile) {
+      await option.hover()
+      await expect(preview.locator('img').first()).toHaveJSProperty('naturalWidth', 320)
+      await page.mouse.move(0, 0)
+      await expect(preview).toBeHidden()
+    }
+    await search.focus()
+    await page.keyboard.press('Tab')
+    await expect(option).toBeFocused()
+    await expect(preview.locator('img').first()).toHaveJSProperty('naturalWidth', 320)
+    await expect(preview.locator('.asset-picker-preview-name').first()).toHaveText('预览图像.png')
+    expect(await preview.evaluate(element => !element.closest('.entry-asset-options, .dialog-inner'))).toBe(true)
+    // A portal to body would be behind the native modal; a local tooltip could be clipped.
+    expect(await preview.evaluate(element => {
+      const box = element.getBoundingClientRect()
+      return [[box.left + 2, box.top + 2], [box.right - 2, box.bottom - 2], [box.left + box.width / 2, box.top + box.height / 2]]
+        .every(([x, y]) => element.contains(document.elementFromPoint(x!, y!)))
+    })).toBe(true)
+    const bounds = await preview.boundingBox()
+    expect(bounds).not.toBeNull()
+    expect(bounds!.x).toBeGreaterThanOrEqual(0)
+    expect(bounds!.y).toBeGreaterThanOrEqual(0)
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(page.viewportSize()!.width)
+    expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(page.viewportSize()!.height)
+    await noOverflow(page)
+    await page.screenshot({ path: testInfo.outputPath(`asset-picker-${mode}-preview.png`), animations: 'disabled' })
+    await page.keyboard.press('Escape')
+    await expect(preview).toBeHidden()
+    if (mode === 'dialog') await expect(dialog).toBeVisible()
+
+    await search.fill('普通文件')
+    await search.focus()
+    await page.keyboard.press('Tab')
+    await expect(page.locator('.entry-asset-options').getByRole('button', { name: '普通文件.txt', exact: true })).toBeFocused()
+    await expect(preview).toBeHidden()
+    await search.fill('预览图像')
+    if (mode === 'standalone') {
+      await page.route('**/api/assets/*/thumbnail', route => route.fulfill({ status: 503, body: 'unavailable' }), { times: 1 })
+      await search.focus()
+      await page.keyboard.press('Tab')
+      await expect(preview).toContainText('图片加载失败')
+    }
+    await option.click()
+    await expect(preview).toBeHidden()
+    await expect(page.getByRole('button', { name: '移除附件 预览图像.png', exact: true })).toBeVisible()
+    if (mode === 'dialog') await dialog.getByRole('button', { name: '取消', exact: true }).click()
+    else {
+      await page.getByRole('button', { name: '保存', exact: true }).click()
+      await expect(page.locator('.entry-edit-status')).toContainText('已保存并与云端同步')
+    }
+  }
+  expect(imageRequests.length).toBeGreaterThan(0)
+  for (const request of imageRequests) {
+    expect(request.url()).toMatch(/\/thumbnail$/)
+    expect(request.headers()['x-user-email']).toBe(space.email)
+  }
+})
+
 test('素材库上传、事项引用与上传附件、图片预览和打印', async ({ page, space, otherSpace, isMobile }, testInfo) => {
   test.setTimeout(90_000)
   const project = await space.project('素材项目')

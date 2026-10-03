@@ -34,7 +34,7 @@ const backlinks = computed(() => {
           <div v-if="backlinks.get(entry.id)?.length" class="reference-group"><span><AppIcon name="link" :size="12" />被引用</span><EntryTooltip v-for="source in backlinks.get(entry.id)" :key="source.id" :entry="source" :entries="allEntries" :projects="projects"><button class="reference-chip backlink" @click="emit('follow', source)">@{{ source.title }}<AppIcon name="arrow" :size="12" /></button></EntryTooltip></div>
         </div>
       </div>
-      <div class="entry-actions"><button class="icon-button" :aria-label="`导出事项 ${entry.title}`" title="导出事项" :disabled="busy" @click="emit('export', entry)"><AppIcon name="print" :size="17" /></button><button class="icon-button" :aria-label="`在新标签页编辑 ${entry.title}`" title="在新标签页编辑" :disabled="busy || tabOpening" @click="emit('window', entry)"><AppIcon name="external" :size="17" /></button><button class="icon-button entry-edit" :aria-label="`编辑事项 ${entry.title}`" :disabled="busy" @click="emit('edit', entry)"><AppIcon name="edit" :size="17" /></button></div>
+      <div class="entry-actions"><button class="icon-button entry-edit" :aria-label="`编辑事项 ${entry.title}`" :disabled="busy" @click="emit('edit', entry)"><AppIcon name="edit" :size="17" /></button><button class="icon-button" :aria-label="`在新标签页编辑 ${entry.title}`" title="在新标签页编辑" :disabled="busy || tabOpening" @click="emit('window', entry)"><AppIcon name="external" :size="17" /></button><button class="icon-button" :aria-label="`导出事项 ${entry.title}`" title="导出事项" :disabled="busy" @click="emit('export', entry)"><AppIcon name="print" :size="17" /></button></div>
     </article>
   </div>
 </template>
