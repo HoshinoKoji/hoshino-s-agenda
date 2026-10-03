@@ -1,10 +1,14 @@
 <script setup lang="ts">
 import type { Asset, Entry, Project } from '../../../../shared/types'
 import { matchesOverviewDateFilter, type OverviewDateFilter } from '~/utils/overviewDates'
+import { matchesOverviewTitleSearch } from '~/utils/overviewSearch'
 
 const props = defineProps<{ projects: Project[]; entries: Entry[]; assets: Asset[]; email: string; activeProject: string; busy: boolean; loading: boolean }>()
 const showCompleted = defineModel<boolean>('showCompleted', { default: false })
 const dateFilter = defineModel<OverviewDateFilter>('dateFilter', { required: true })
+const titleSearch = defineModel<string>('titleSearch', { required: true })
+const hasSearch = computed(() => !!titleSearch.value.trim())
+const isFiltered = computed(() => dateFilter.value.type !== 'all' || hasSearch.value)
 const emit = defineEmits<{
   add: [projectId: string]
   createProject: []
@@ -18,6 +22,7 @@ const groups = computed(() => {
   const byProject = new Map<string, Entry[]>()
   for (const entry of props.entries) {
     if (!matchesOverviewDateFilter(entry.date, dateFilter.value)) continue
+    if (!matchesOverviewTitleSearch(entry.title, titleSearch.value)) continue
     const list = byProject.get(entry.projectId) || []
     list.push(entry)
     byProject.set(entry.projectId, list)
@@ -32,11 +37,12 @@ const groups = computed(() => {
 const total = computed(() => groups.value.reduce((sum, group) => sum + group.entries.length, 0))
 const remaining = computed(() => groups.value.reduce((sum, group) => sum + group.remaining, 0))
 const visibleGroups = computed(() => groups.value.filter(group =>
-  (dateFilter.value.type === 'all' || group.entries.length > 0) &&
+  (!isFiltered.value || group.entries.length > 0) &&
   (showCompleted.value || !group.entries.length || group.remaining > 0)))
-const summaryLabel = computed(() => dateFilter.value.type === 'range' ? '所选时间段概览' : dateFilter.value.type === 'undated' ? '无日期事项概览' : '全部日期概览')
+const summaryLabel = computed(() => hasSearch.value ? '标题搜索结果概览' : dateFilter.value.type === 'range' ? '所选时间段概览' : dateFilter.value.type === 'undated' ? '无日期事项概览' : '全部日期概览')
 const emptyMessage = computed(() => {
-  if (total.value > 0) return dateFilter.value.type === 'all' ? '已完成项目已隐藏' : '匹配的已完成事项已隐藏'
+  if (total.value > 0) return isFiltered.value ? '匹配的已完成事项已隐藏' : '已完成项目已隐藏'
+  if (hasSearch.value) return '当前筛选下没有匹配标题的事项'
   return dateFilter.value.type === 'undated' ? '暂无无日期事项' : '该时间段暂无事项'
 })
 </script>
@@ -56,7 +62,7 @@ const emptyMessage = computed(() => {
         <button class="button secondary" :disabled="busy" @click="emit('createProject')"><AppIcon name="plus" :size="16" />项目</button>
       </div>
     </header>
-    <OverviewDateFilter v-model="dateFilter" />
+    <div class="overview-filters"><OverviewDateFilter v-model="dateFilter" /><OverviewTitleSearch v-model="titleSearch" /></div>
     <div v-if="!groups.length" class="day-empty"><p v-if="loading">正在从云端取回你的记录…</p><template v-else><h3>(空)</h3><button class="text-button" :disabled="busy" @click="emit('createProject')">创建项目<AppIcon name="arrow" :size="15" /></button></template></div>
     <p v-if="groups.length && !visibleGroups.length" class="small-empty">{{ emptyMessage }}</p>
     <section v-for="group in visibleGroups" :key="group.project.id" class="overview-project" :aria-labelledby="`project-title-${group.project.id}`">
