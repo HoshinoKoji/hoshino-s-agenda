@@ -13,6 +13,12 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 const id = useId()
+const tab = ref('source')
+const tabs = computed(() => [
+  { label: '源码', value: 'source', slot: 'source', disabled: props.disabled },
+  { label: '预览', value: 'preview', slot: 'preview', disabled: props.disabled },
+])
+const previewEntry = computed(() => ({ id: props.selfId ?? '', description: props.modelValue, references: props.references }))
 const textarea = ref<HTMLTextAreaElement>()
 const list = ref<HTMLElement>()
 const query = ref<MentionQuery | null>(null)
@@ -34,7 +40,7 @@ const activeId = computed(() => query.value && candidates.value[active.value] ? 
 function close() { query.value = null }
 function fitTextarea() {
   const input = textarea.value
-  if (!input?.isConnected) return
+  if (!input?.isConnected || !input.getClientRects().length) return
   // Temporarily shrinking a focused textarea can scroll its caret to the viewport
   // edge. Restore each ancestor after measuring, without touching native selection.
   const scrollPositions: { element: HTMLElement; top: number; left: number }[] = []
@@ -53,9 +59,13 @@ onMounted(() => {
   window.addEventListener('resize', fitTextarea)
 })
 watch(() => props.modelValue, () => nextTick(fitTextarea))
+watch(tab, value => {
+  close()
+  if (value === 'source') nextTick(fitTextarea)
+})
 function updateQuery() {
   const input = textarea.value
-  if (!input || props.disabled || composing.value || document.activeElement !== input) return
+  if (!input || tab.value !== 'source' || props.disabled || composing.value || document.activeElement !== input) return
   const next = mentionQueryAt(input.value, input.selectionStart, input.selectionEnd)
   if (next?.start !== query.value?.start || next?.query !== query.value?.query) active.value = 0
   query.value = next
@@ -132,26 +142,40 @@ function keyup(event: KeyboardEvent) {
 <template>
   <div class="description-editor field">
     <label :for="`${id}-input`">描述 <span class="muted">（可选）</span></label>
-    <textarea
-      :id="`${id}-input`" ref="textarea" :value="modelValue" :maxlength="DESCRIPTION_MAX_LENGTH" rows="5"
-      :disabled="disabled" placeholder="补充事项描述，输入 @ 引用事项" aria-autocomplete="list"
-      :aria-describedby="`${id}-help ${id}-status`" :aria-controls="query ? `${id}-list` : undefined"
-      :aria-activedescendant="activeId" aria-haspopup="listbox"
-      @input="input" @click="updateQuery" @select="updateQuery" @focus="updateQuery" @keyup="keyup" @keydown="keydown" @blur="close"
-      @compositionstart="composing = true; close()" @compositionend="compositionEnd"
-    />
-    <div class="description-help"><p :id="`${id}-help`" class="field-help">支持 Markdown，编辑时显示源码。输入 @ 搜索事项；↑↓ 选择，Enter 插入，Esc 收起。</p><span class="muted">{{ modelValue.length }} / {{ DESCRIPTION_MAX_LENGTH }}</span></div>
-    <div v-if="query" class="mention-picker">
-      <div ref="list" :id="`${id}-list`" class="reference-options" role="listbox" aria-label="引用事项候选">
-        <button
-          v-for="(candidate, index) in candidates" :id="`${id}-option-${index}`" :key="candidate.id"
-          type="button" role="option" tabindex="-1" :aria-selected="index === active" class="reference-option"
-          :aria-disabled="references.length >= MAX_ENTRY_REFERENCES && !references.includes(candidate.id)"
-          @pointerdown.prevent @click="choose(candidate)"
-        ><span class="reference-option-text"><strong>@{{ candidate.title }}</strong><small><i class="project-dot" :style="{ background: projectMap.get(candidate.projectId)?.color }" />{{ projectMap.get(candidate.projectId)?.name }}<span>·</span>{{ candidate.date ?? '未设日期' }}<span>·</span>添加于 {{ dateKey(new Date(candidate.createdAt)) }}</small></span></button>
-      </div>
-      <p v-if="!candidates.length" class="small-empty" role="status">没有找到相关事项，可继续作为纯文本输入。</p>
-    </div>
+    <UTabs
+      v-model="tab" :items="tabs" :unmount-on-hide="false" variant="link" size="sm"
+      class="description-surface"
+      :ui="{ root: 'gap-0', list: 'justify-start px-2 pt-1 pb-0 mb-0 border-[#e5dfed]', trigger: 'px-3 py-2', content: 'min-w-0 rounded-none' }"
+    >
+      <template #source>
+        <textarea
+          :id="`${id}-input`" ref="textarea" :value="modelValue" :maxlength="DESCRIPTION_MAX_LENGTH" rows="5"
+          :disabled="disabled" placeholder="补充事项描述，输入 @ 引用事项" aria-autocomplete="list"
+          :aria-describedby="`${id}-help ${id}-status`" :aria-controls="query ? `${id}-list` : undefined"
+          :aria-activedescendant="activeId" aria-haspopup="listbox"
+          @input="input" @click="updateQuery" @select="updateQuery" @focus="updateQuery" @keyup="keyup" @keydown="keydown" @blur="close"
+          @compositionstart="composing = true; close()" @compositionend="compositionEnd"
+        />
+        <div v-if="query" class="mention-picker">
+          <div ref="list" :id="`${id}-list`" class="reference-options" role="listbox" aria-label="引用事项候选">
+            <button
+              v-for="(candidate, index) in candidates" :id="`${id}-option-${index}`" :key="candidate.id"
+              type="button" role="option" tabindex="-1" :aria-selected="index === active" class="reference-option"
+              :aria-disabled="references.length >= MAX_ENTRY_REFERENCES && !references.includes(candidate.id)"
+              @pointerdown.prevent @click="choose(candidate)"
+            ><span class="reference-option-text"><strong>@{{ candidate.title }}</strong><small><i class="project-dot" :style="{ background: projectMap.get(candidate.projectId)?.color }" />{{ projectMap.get(candidate.projectId)?.name }}<span>·</span>{{ candidate.date ?? '未设日期' }}<span>·</span>添加于 {{ dateKey(new Date(candidate.createdAt)) }}</small></span></button>
+          </div>
+          <p v-if="!candidates.length" class="small-empty" role="status">没有找到相关事项，可继续作为纯文本输入。</p>
+        </div>
+      </template>
+      <template #preview>
+        <div v-if="tab === 'preview'" class="description-preview entry-description">
+          <EntryMarkdown v-if="modelValue.trim()" :entry="previewEntry" :entries="entries" :projects="projects" :interactive="false" />
+          <p v-else class="muted">暂无描述，切换到源码添加内容。</p>
+        </div>
+      </template>
+    </UTabs>
+    <div class="description-help"><p :id="`${id}-help`" class="field-help">{{ tab === 'source' ? '支持 Markdown。输入 @ 搜索事项；↑↓ 选择，Enter 插入，Esc 收起。' : '预览当前描述草稿，切换到源码继续编辑。' }}</p><span class="muted">{{ modelValue.length }} / {{ DESCRIPTION_MAX_LENGTH }}</span></div>
     <p :id="`${id}-status`" class="description-status" :class="{ 'danger-text': feedback || references.length > MAX_ENTRY_REFERENCES }" role="status" aria-live="polite">{{ feedback || (references.length >= MAX_ENTRY_REFERENCES ? `已引用 ${references.length} / 50 个事项；新增引用前请先移除一个。` : `已引用 ${references.length} / 50 个事项`) }}</p>
   </div>
 </template>

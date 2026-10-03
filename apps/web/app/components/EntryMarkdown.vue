@@ -26,7 +26,7 @@ const tags = new Set(['p', 'strong', 'em', 's', 'a', 'ul', 'ol', 'li', 'blockquo
 
 export default defineComponent({
   props: {
-    entry: { type: Object as PropType<Entry>, required: true },
+    entry: { type: Object as PropType<Pick<Entry, 'id' | 'description' | 'references'>>, required: true },
     entries: { type: Array as PropType<Entry[]>, required: true },
     projects: { type: Array as PropType<Project[]>, required: true },
     interactive: { type: Boolean, default: true },

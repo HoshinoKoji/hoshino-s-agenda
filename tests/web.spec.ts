@@ -149,6 +149,10 @@ test('事项独立窗口：草稿警告、云端读取、连续保存、附件�
   await editor.getByRole('option', { name: '另一个编辑项目', exact: true }).click()
   const body = `**独立编辑 Markdown**\n\n${serializeMention({ id: target, title: '独立窗口引用目标' })}\n${'长正文用于检查页面滚动。\n'.repeat(80)}`
   await editor.getByRole('textbox', { name: '描述' }).fill(body)
+  await editor.getByRole('tab', { name: '预览', exact: true }).click()
+  await expect(editor.locator('.description-preview strong')).toHaveText('独立编辑 Markdown')
+  await expect(editor.locator('.description-preview .entry-mention')).toHaveText('@独立窗口引用目标')
+  await expect(editor.locator('.description-preview')).toContainText('长正文用于检查页面滚动。')
   await editor.getByLabel('上传事项附件').setInputFiles({ name: '独立窗口附件.txt', mimeType: 'text/plain', buffer: Buffer.from('独立附件内容') })
   await expect(editor.locator('.entry-asset-chip')).toContainText('独立窗口附件.txt')
   await editor.getByRole('button', { name: '保存', exact: true }).click()
@@ -2557,7 +2561,7 @@ test('描述 Markdown 安全展示、@筛选与键盘中间插入、刷新及引
   await expect(page.locator('.entry-card .entry-mention')).toHaveCount(0)
 })
 
-test('基础 Markdown 在详情与悬浮卡片展示，编辑时保留源码与引用', async ({ page, space, isMobile }) => {
+test('基础 Markdown 在详情与悬浮卡片展示，编辑时切换源码与草稿预览', async ({ page, space, isMobile }, testInfo) => {
   await page.clock.setFixedTime(new Date('2026-09-13T04:00:00Z'))
   const project = await space.project('Markdown 项目')
   const target = await space.entry(project.id, '引用目标', '2026-10-02')
@@ -2601,7 +2605,41 @@ test('基础 Markdown 在详情与悬浮卡片展示，编辑时保留源码与�
     await expect(tooltip.locator('button.entry-mention')).toHaveCount(0)
   }
   await page.getByRole('button', { name: '编辑事项 Markdown 事项' }).click()
-  await expect(page.getByRole('textbox', { name: '描述' })).toHaveValue(source)
+  const description = page.getByRole('textbox', { name: '描述' })
+  const sourceTab = page.getByRole('tab', { name: '源码', exact: true })
+  const previewTab = page.getByRole('tab', { name: '预览', exact: true })
+  const preview = page.locator('.description-preview')
+  await expect(sourceTab).toHaveAttribute('aria-selected', 'true')
+  await expect(description).toHaveValue(source)
+  await sourceTab.focus()
+  await page.keyboard.press('ArrowRight')
+  await expect(previewTab).toBeFocused()
+  await expect(previewTab).toHaveAttribute('aria-selected', 'true')
+  await expect(description).toBeHidden()
+  await expect(preview.locator('h1')).toHaveText('标题')
+  await expect(preview.locator('pre code')).toHaveText(mention)
+  await expect(preview.locator('.entry-mention')).toHaveText('@引用目标')
+  await expect(preview.locator('a')).toHaveAttribute('href', 'https://example.com/path')
+  await expect(preview.locator('a')).toHaveCount(1)
+  await expect(preview.locator('img, script')).toHaveCount(0)
+  await expect(preview).toContainText('<img src=x onerror="window.__descriptionExecuted=true">')
+  await sourceTab.click()
+  const draft = source.replace('# 标题', '# 未保存的草稿标题')
+  await description.fill(draft)
+  await previewTab.click()
+  await expect(preview.locator('h1')).toHaveText('未保存的草稿标题')
+  expect((await space.agenda()).entries.find(entry => entry.title === 'Markdown 事项')?.description).toBe(source)
+  if (isMobile) await page.setViewportSize({ width: 320, height: 568 })
+  await noOverflow(page)
+  await previewTab.scrollIntoViewIfNeeded()
+  await page.screenshot({ path: testInfo.outputPath('description-editor-preview.png'), animations: 'disabled' })
+  await sourceTab.click()
+  await expect(description).toHaveValue(draft)
+  await description.fill('')
+  await previewTab.click()
+  await expect(preview).toHaveText('暂无描述，切换到源码添加内容。')
+  await sourceTab.click()
+  await description.fill(source)
   await page.getByRole('button', { name: '取消', exact: true }).click()
   await page.getByRole('combobox', { name: '工作台视图' }).click()
   await page.getByRole('option', { name: '项目总览', exact: true }).click()
@@ -2712,6 +2750,19 @@ test('长描述中间输入保持光标与滚动位置，弹窗与新标签页�
       }
     })
   }
+  async function centerCaret(input: Locator) {
+    await input.evaluate(element => {
+      const textarea = element as HTMLTextAreaElement
+      textarea.focus({ preventScroll: true })
+      textarea.scrollTop = 0
+      const scroller = textarea.closest<HTMLElement>('.dialog-inner') || document.scrollingElement!
+      const style = getComputedStyle(textarea)
+      const line = textarea.value.slice(0, textarea.selectionStart).split('\n').length - 1
+      const caretY = textarea.getBoundingClientRect().top + parseFloat(style.paddingTop) + (line + 0.5) * parseFloat(style.lineHeight)
+      const center = scroller === document.scrollingElement ? window.innerHeight / 2 : scroller.getBoundingClientRect().top + scroller.clientHeight / 2
+      scroller.scrollTop += caretY - center
+    })
+  }
 
   for (const mode of ['dialog', 'tab']) {
     let editingPage = page
@@ -2727,18 +2778,8 @@ test('长描述中间输入保持光标与滚动位置，弹窗与新标签页�
     await editingPage.getByRole('textbox', { name: '事项标题' }).fill('光标位置草稿')
     await expect.poll(() => input.evaluate(element => element.scrollHeight <= element.clientHeight + 1)).toBe(true)
     const position = body.indexOf('第220行 ') + '第220行 '.length
-    await input.evaluate((element, position) => {
-      const textarea = element as HTMLTextAreaElement
-      textarea.focus({ preventScroll: true })
-      textarea.setSelectionRange(position, position)
-      textarea.scrollTop = 0
-      const scroller = textarea.closest<HTMLElement>('.dialog-inner') || document.scrollingElement!
-      const style = getComputedStyle(textarea)
-      const line = textarea.value.slice(0, position).split('\n').length - 1
-      const caretY = textarea.getBoundingClientRect().top + parseFloat(style.paddingTop) + (line + 0.5) * parseFloat(style.lineHeight)
-      const center = scroller === document.scrollingElement ? window.innerHeight / 2 : scroller.getBoundingClientRect().top + scroller.clientHeight / 2
-      scroller.scrollTop += caretY - center
-    }, position)
+    await input.evaluate((element, position) => (element as HTMLTextAreaElement).setSelectionRange(position, position), position)
+    await centerCaret(input)
     let text = body
     let caret = position
     for (const character of ['a', 'b', 'c']) {
@@ -2755,12 +2796,19 @@ test('长描述中间输入保持光标与滚动位置，弹窗与新标签页�
     }
     await editingPage.screenshot({ path: testInfo.outputPath(`long-description-caret-${mode}.png`), animations: 'disabled' })
 
-    // A resize must preserve a backward selection; replacement and native undo remain usable.
+    // Preview and resize must preserve a backward selection and the native undo history.
     await input.evaluate((element, position) => (element as HTMLTextAreaElement).setSelectionRange(position, position + 3, 'backward'), position)
     const viewport = editingPage.viewportSize()!
+    await editingPage.getByRole('tab', { name: '预览', exact: true }).click()
+    await expect(editingPage.locator('.description-preview')).toContainText('第499行 固定正文')
     await editingPage.setViewportSize({ ...viewport, height: viewport.height - 40 })
+    await editingPage.getByRole('tab', { name: '源码', exact: true }).click()
+    await expect(input).toHaveValue(text)
+    await expect.poll(() => input.evaluate(element => element.scrollHeight <= element.clientHeight + 1)).toBe(true)
     expect(await state(input)).toMatchObject({ start: position, end: position + 3, direction: 'backward' })
     await editingPage.setViewportSize(viewport)
+    // Clicking the tabs scrolls their header into view; resume at the selected editing line.
+    await centerCaret(input)
     const beforeReplace = await state(input)
     const beforeReplaceText = text
     await editingPage.keyboard.insertText('替换')
