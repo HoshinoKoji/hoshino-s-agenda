@@ -3,20 +3,19 @@
   "permission": {
     "question": "allow",
     "read": {
-      "*": "allow",
+      "*": "allow"
     },
     "edit": {
-      "*": "ask",
-      "*.md": "allow",
-      "apps/*": "allow",
-      "shared/*": "allow",
-      "tests/*": "allow",
+      "*": "allow"
     },
     "list": {
-      "*": "allow",
+      "*": "allow"
     },
     "glob": {
-      "*": "allow",
+      "*": "allow"
     },
+    "bash": {
+      "*": "allow"
+    }
   }
 }
