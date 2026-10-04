@@ -2,7 +2,10 @@ import { and, count, eq, inArray, max } from 'drizzle-orm'
 import { DESCRIPTION_MAX_LENGTH, JSON_BODY_MAX_BYTES, type AgendaData, type Asset, type EncryptedDescription, type EntryInput, type ProjectInput } from '../../../shared/types'
 import { isEncryptedDescription } from '../../../shared/encryption'
 import { createDb, type Database } from './db'
-import { accounts, assetDeletions, assets, entries, entryAssets, entryReferences, projects } from './db/schema'
+import { accounts, assetDeletions, assets, entries, entryAssets, entryReferences, entrySeries, projects } from './db/schema'
+import { HttpError, fail } from './errors'
+import { deleteProjectWithSeries, patchRecurring, publicEntry, removeRecurring, saveRecurring } from './recurrence'
+import { expandRecurrence } from '../../../shared/recurrence'
 
 interface Env {
   DB: D1Database
@@ -70,12 +73,7 @@ async function retryAssetDeletions(db: Database, bucket: R2Bucket) {
   }
 }
 
-class HttpError extends Error {
-  constructor(public status: number, message: string) { super(message) }
-}
-
 const json = (data: unknown, status = 200) => Response.json(data, { status })
-function fail(status: number, message: string): never { throw new HttpError(status, message) }
 
 function getEmail(request: Request) {
   const email = (request.headers.get('X-User-Email') || '').trim().toLowerCase()
@@ -181,13 +179,14 @@ async function route(request: Request, env: Env): Promise<Response> {
   const db = createDb(env.DB)
 
   if (path === '/api/agenda' && method === 'GET') {
-    const [projectRows, entryRows, referenceRows, assetRows, attachmentRows] = await db.batch([
+    const [projectRows, entryRows, referenceRows, assetRows, attachmentRows, seriesRows] = await db.batch([
       db.select({ id: projects.id, name: projects.name, color: projects.color, createdAt: projects.createdAt })
         .from(projects).where(eq(projects.ownerEmail, email)).orderBy(projects.sortOrder, projects.createdAt, projects.id),
       db.select({
         id: entries.id, projectId: entries.projectId, date: entries.date, title: entries.title,
         description: entries.description, encryptedDescription: entries.encryptedDescription,
         completed: entries.completed, createdAt: entries.createdAt, updatedAt: entries.updatedAt,
+        seriesId: entries.seriesId, scheduledDate: entries.scheduledDate, exception: entries.exception,
       }).from(entries).where(eq(entries.ownerEmail, email)).orderBy(entries.date, entries.createdAt, entries.id),
       db.select({ sourceId: entryReferences.sourceId, targetId: entryReferences.targetId })
         .from(entryReferences).where(eq(entryReferences.ownerEmail, email)).orderBy(entryReferences.targetId),
@@ -196,6 +195,7 @@ async function route(request: Request, env: Env): Promise<Response> {
         .from(assets).where(eq(assets.ownerEmail, email)).orderBy(assets.createdAt, assets.id),
       db.select({ entryId: entryAssets.entryId, assetId: entryAssets.assetId })
         .from(entryAssets).where(eq(entryAssets.ownerEmail, email)).orderBy(entryAssets.assetId),
+      db.select().from(entrySeries).where(eq(entrySeries.ownerEmail, email)),
     ])
     const references = new Map<string, string[]>()
     const attachments = new Map<string, string[]>()
@@ -207,11 +207,15 @@ async function route(request: Request, env: Env): Promise<Response> {
       attachments.set(row.entryId, [...(attachments.get(row.entryId) || []), row.assetId])
       usage.set(row.assetId, (usage.get(row.assetId) || 0) + 1)
     }
+    const seriesMap = new Map(seriesRows.map(series => [series.id, series]))
     return json({
       projects: projectRows,
-      entries: entryRows.map(({ encryptedDescription, ...row }) => ({ ...row,
-        ...(encryptedDescription ? { encryptedDescription } : {}),
-        references: references.get(row.id) || [], assetIds: attachments.get(row.id) || [] })),
+      entries: entryRows.map(({ encryptedDescription, seriesId, scheduledDate, exception, ...row }) => {
+        const series = seriesId ? seriesMap.get(seriesId) : undefined
+        return { ...row, ...(encryptedDescription ? { encryptedDescription } : {}),
+          ...(series && scheduledDate ? { recurrence: { seriesId: series.id, scheduledDate, exception, rule: series.rule, version: series.version } } : {}),
+          references: references.get(row.id) || [], assetIds: attachments.get(row.id) || [] }
+      }),
       assets: assetRows.map(row => ({ ...row, usageCount: usage.get(row.id) || 0 })),
     } satisfies AgendaData)
   }
@@ -342,7 +346,7 @@ async function route(request: Request, env: Env): Promise<Response> {
     const id = projectMatch[1]
     await ensureOwned(db, projects, id, email)
     if (method === 'DELETE') {
-      await db.delete(projects).where(and(eq(projects.id, id), eq(projects.ownerEmail, email)))
+      await deleteProjectWithSeries(db, email, id)
     } else {
       const data = projectInput(await body(request))
       await db.update(projects).set(data).where(and(eq(projects.id, id), eq(projects.ownerEmail, email)))
@@ -352,11 +356,12 @@ async function route(request: Request, env: Env): Promise<Response> {
 
   const entryMatch = path.match(/^\/api\/entries\/([\w-]+)$/)
   if ((path === '/api/entries' && method === 'POST') || (entryMatch && method === 'PUT')) {
-    const id = entryMatch?.[1] || crypto.randomUUID()
-    const current = entryMatch ? await db.select({ encryptedDescription: entries.encryptedDescription }).from(entries)
+    const input = await body(request)
+    if (input.requestId !== undefined && (typeof input.requestId !== 'string' || !/^[\w-]{1,64}$/.test(input.requestId))) fail(400, '创建标识无效')
+    const id = entryMatch?.[1] || input.requestId as string || crypto.randomUUID()
+    const current = entryMatch || input.requestId ? await db.select().from(entries)
       .where(and(eq(entries.id, id), eq(entries.ownerEmail, email))).get() : undefined
     if (entryMatch && !current) fail(404, '事项不存在')
-    const input = await body(request)
     if (current?.encryptedDescription && !Object.hasOwn(input, 'encryptedDescription')) {
       fail(409, '此事项的描述已加密，请使用支持加密的客户端并明确提交加密字段')
     }
@@ -375,6 +380,23 @@ async function route(request: Request, env: Env): Promise<Response> {
       const row = await db.select({ count: count() }).from(assets)
         .where(and(eq(assets.ownerEmail, email), inArray(assets.id, assetIds))).get()
       if (row?.count !== assetIds.length) fail(400, '素材不存在或不属于当前邮箱')
+    }
+    if (!entryMatch && current) {
+      const saved = await publicEntry(db, email, id)
+      let date = data.date
+      if (input.recurrence) {
+        try { date = expandRecurrence(input.recurrence).dates[0]! } catch (error) { fail(400, (error as Error).message) }
+      }
+      const equalIds = (a: string[], b: string[]) => JSON.stringify([...a].sort()) === JSON.stringify([...b].sort())
+      if (saved.title !== data.title || saved.projectId !== data.projectId || saved.date !== date || saved.description !== data.description ||
+        saved.completed !== data.completed || JSON.stringify(saved.encryptedDescription ?? null) !== JSON.stringify(data.encryptedDescription) ||
+        !equalIds(saved.references, data.references) || !equalIds(saved.assetIds, assetIds) ||
+        JSON.stringify(saved.recurrence?.rule ?? null) !== JSON.stringify(input.recurrence ? expandRecurrence(input.recurrence).rule : null)) fail(409, '创建标识已使用，请重新打开新事项')
+      return json({ id, description: saved.description, ...(saved.encryptedDescription ? { encryptedDescription: saved.encryptedDescription } : {}), savedEntry: saved }, 201)
+    }
+    if (current?.seriesId || (input.recurrence !== undefined && input.recurrence !== null)) {
+      const saved = await saveRecurring(db, email, id, current, input, { ...data, assetIds })
+      return json(saved, entryMatch ? 200 : 201)
     }
     const now = new Date().toISOString()
     const values = {
@@ -400,15 +422,18 @@ async function route(request: Request, env: Env): Promise<Response> {
   if (entryMatch && (method === 'PATCH' || method === 'DELETE')) {
     const id = entryMatch[1]
     await ensureOwned(db, entries, id, email)
+    const current = await db.select().from(entries).where(and(eq(entries.id, id), eq(entries.ownerEmail, email))).get()
     if (method === 'DELETE') {
-      await db.delete(entries).where(and(eq(entries.id, id), eq(entries.ownerEmail, email)))
+      if (current?.seriesId) await removeRecurring(db, email, current, request.body ? await body(request) : {})
+      else await db.delete(entries).where(and(eq(entries.id, id), eq(entries.ownerEmail, email)))
     } else {
       const data = await body(request)
       const hasDate = Object.hasOwn(data, 'date')
       if (hasDate && Object.hasOwn(data, 'completed')) fail(400, '每次只能更新日期或完成状态')
       if (!hasDate && typeof data.completed !== 'boolean') fail(400, '完成状态必须为布尔值')
       const changes = hasDate ? { date: entryDate(data.date) } : { completed: data.completed as boolean }
-      await db.update(entries).set({ ...changes, updatedAt: new Date().toISOString() })
+      if (current?.seriesId) await patchRecurring(db, email, current, changes)
+      else await db.update(entries).set({ ...changes, updatedAt: new Date().toISOString() })
         .where(and(eq(entries.id, id), eq(entries.ownerEmail, email)))
     }
     return json({ ok: true })

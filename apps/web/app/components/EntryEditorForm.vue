@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { DESCRIPTION_MAX_LENGTH, type Asset, type Entry, type EntryInput, type EntrySaveResult, type Project } from '../../../../shared/types'
+import { DESCRIPTION_MAX_LENGTH, type Asset, type Entry, type EntryInput, type EntryRemoveOptions, type EntrySaveResult, type Project, type RecurrenceFrequency, type RecurrenceRule, type RecurrenceScope } from '../../../../shared/types'
+import { expandRecurrence, RECURRENCE_LABELS, type RecurrenceAdjustment } from '../../../../shared/recurrence'
 import { descriptionReferences, legacyReferenceIds, MAX_ENTRY_REFERENCES, mentionIds } from '../../../../shared/mentions'
 import { dateKey } from '~/utils/dates'
 import { encryptDescription, encryptDescriptionWithKey, validateEncryptionPassword } from '../../../../shared/encryption'
 const props = defineProps<{
   entry?: Entry
+  copySource?: Entry
   date: string | null
   projectId: string
   projects: Project[]
@@ -13,48 +15,95 @@ const props = defineProps<{
   email: string
   upload: (file: File) => Promise<Asset>
   submit: (data: EntryInput, id?: string, onSaved?: (result: EntrySaveResult) => void) => Promise<void>
-  remove: (id: string) => Promise<void>
+  remove: (id: string, options?: EntryRemoveOptions) => Promise<void>
   saveDisabled?: boolean
   disabled?: boolean
   cancelLabel?: string
 }>()
-const emit = defineEmits<{ close: []; saved: []; removed: []; export: [entry: Entry]; 'update:dirty': [value: boolean]; 'update:busy': [value: boolean] }>()
+const emit = defineEmits<{ close: []; saved: []; removed: []; export: [entry: Entry]; copy: [entry: Entry]; 'update:dirty': [value: boolean]; 'update:busy': [value: boolean] }>()
 const encryption = useEntryEncryption()
 let disposed = false
-const initialEncrypted = props.entry?.encryptedDescription
-const initialDescription = props.entry ? encryption.description(props.entry) : ''
+const seed = props.entry ?? props.copySource
+const initialEncrypted = seed?.encryptedDescription
+const initialDescription = seed ? encryption.description(seed) : ''
 const descriptionReady = ref(initialDescription !== undefined)
 const locked = computed(() => !!initialEncrypted && !descriptionReady.value)
 const encrypted = ref(!!initialEncrypted)
 const changingPassword = ref(false)
 const password = ref('')
 const confirmPassword = ref('')
-const initialDate = props.entry ? props.entry.date : props.date
+const initialDate = seed ? seed.date : props.date
 const undated = ref(initialDate === null)
 const form = reactive<Omit<EntryInput, 'references' | 'date'> & { description: string; date: string }>({
-  title: props.entry?.title || '',
+  title: seed?.title || '',
   description: initialDescription ?? '',
   date: initialDate ?? dateKey(new Date()),
-  projectId: props.entry?.projectId || props.projectId || props.projects[0]?.id || '',
+  projectId: seed?.projectId || props.projectId || props.projects[0]?.id || '',
   completed: props.entry?.completed || false,
 })
-const legacy = ref(props.entry && descriptionReady.value ? legacyReferenceIds({ ...props.entry, description: form.description }) : [])
+const selectedDate = computed<string | null>({
+  get: () => undated.value ? null : form.date,
+  set: value => { undated.value = value === null; if (value !== null) form.date = value },
+})
+const legacy = ref(seed && descriptionReady.value ? legacyReferenceIds({ ...seed, description: form.description }) : [])
 const busy = ref(false)
 const uploading = ref(false)
-const assetIds = ref<string[]>([...(props.entry?.assetIds || [])])
+const assetIds = ref<string[]>([...(seed?.assetIds || [])])
+const requestId = crypto.randomUUID()
+let creationSeal: { fingerprint: string; encryptedDescription: EntryInput['encryptedDescription']; key?: CryptoKey } | undefined
+const scope = ref<RecurrenceScope>('single')
+const frequency = ref<RecurrenceFrequency | ''>(props.entry?.recurrence?.rule.frequency ?? '')
+const until = ref(props.entry?.recurrence?.rule.until ?? '')
+const singleInstance = computed(() => !!props.entry?.recurrence && scope.value === 'single')
+const recurrence = computed<RecurrenceRule | null>(() => {
+  if (!frequency.value) return null
+  if (singleInstance.value) return props.entry!.recurrence!.rule
+  const rule: RecurrenceRule = { frequency: frequency.value, startDate: form.date, until: until.value }
+  const original = props.entry?.recurrence
+  if (original && frequency.value === original.rule.frequency && ['monthly', 'yearly'].includes(frequency.value) &&
+    form.date === (scope.value === 'all' ? original.rule.startDate : original.scheduledDate)) {
+    rule.anchorDate = original.rule.anchorDate ?? original.rule.startDate
+  }
+  return rule
+})
+const preview = computed(() => {
+  if (!recurrence.value || undated.value && !singleInstance.value) return undefined
+  try { return { ...expandRecurrence(recurrence.value), error: '' } }
+  catch (cause) { return { dates: [], adjustments: [], error: (cause as Error).message } }
+})
+const dateConfirmation = shallowRef<{ adjustments: RecurrenceAdjustment[]; count: number; resolve: (confirmed: boolean) => void }>()
+const fieldsDisabled = computed(() => busy.value || uploading.value || props.disabled || !!dateConfirmation.value)
+function closeDateConfirmation(confirmed: boolean) {
+  const pending = dateConfirmation.value
+  dateConfirmation.value = undefined
+  pending?.resolve(confirmed)
+}
+watch(scope, value => {
+  const repeat = props.entry?.recurrence
+  if (!repeat) return
+  form.date = value === 'all' ? repeat.rule.startDate : value === 'following' ? repeat.scheduledDate : props.entry!.date ?? repeat.scheduledDate
+  undated.value = value === 'single' && props.entry!.date === null
+})
+watch(frequency, value => { if (value && !singleInstance.value) undated.value = false })
 const assetQuery = ref('')
 const assetPicker = ref(false)
 const selectedAssets = computed(() => assetIds.value.map(id => props.assets.find(asset => asset.id === id)).filter((asset): asset is Asset => !!asset))
 const availableAssets = computed(() => props.assets.filter(asset => !assetIds.value.includes(asset.id) && asset.name.toLocaleLowerCase().includes(assetQuery.value.toLocaleLowerCase())))
-const projectOpen = ref(false)
 const error = ref('')
 const confirming = ref(false)
 const entryMap = computed(() => new Map(props.entries.map(entry => [entry.id, entry])))
 const references = computed(() => locked.value
-  ? (props.entry?.references || []).filter(id => props.entries.some(entry => entry.id === id))
+  ? (seed?.references || []).filter(id => props.entries.some(entry => entry.id === id))
   : descriptionReferences(form.description, props.entries, props.entry?.id, legacy.value))
 const incoming = computed(() => props.entries.filter(entry => props.entry && entry.id !== props.entry.id && entry.references.includes(props.entry.id)))
 const projectItems = computed(() => props.projects.map(project => ({ label: project.name, value: project.id })))
+const frequencyItems: { label: string; value: RecurrenceFrequency | '' }[] = [
+  { label: '不重复', value: '' },
+  ...Object.entries(RECURRENCE_LABELS).map(([value, label]) => ({ label, value: value as RecurrenceFrequency })),
+]
+const scopeItems: { label: string; value: RecurrenceScope }[] = [
+  { label: '仅本次', value: 'single' }, { label: '本次及以后', value: 'following' }, { label: '整个系列', value: 'all' },
+]
 function snapshot() {
   return {
     title: form.title, description: locked.value ? '' : form.description, projectId: form.projectId,
@@ -62,15 +111,12 @@ function snapshot() {
     references: [...references.value].sort(), assetIds: [...assetIds.value].sort(),
     encrypted: encrypted.value, changingPassword: changingPassword.value,
     password: password.value, confirmPassword: confirmPassword.value,
+    frequency: frequency.value, until: until.value, scope: scope.value,
   }
 }
 const baseline = ref(snapshot())
 watch(() => JSON.stringify(snapshot()) !== JSON.stringify(baseline.value), value => emit('update:dirty', value), { immediate: true })
-watch(() => busy.value || uploading.value, value => emit('update:busy', value), { immediate: true, flush: 'sync' })
-function closeProjectOnEscape(event: KeyboardEvent) {
-  event.preventDefault()
-  projectOpen.value = false
-}
+watch(() => busy.value || uploading.value || !!dateConfirmation.value, value => emit('update:busy', value), { immediate: true, flush: 'sync' })
 function updateDescription(value: string) {
   form.description = value
   // Once explicitly inserted into the description, deletion of that marker removes the relation too.
@@ -78,36 +124,51 @@ function updateDescription(value: string) {
   legacy.value = legacy.value.filter(id => !inline.has(id))
 }
 function unlocked() {
-  if (!props.entry) return
-  const description = encryption.description(props.entry)
+  if (!seed) return
+  const description = encryption.description(seed)
   if (description === undefined) return
   form.description = description
-  legacy.value = legacyReferenceIds({ ...props.entry, description })
+  legacy.value = legacyReferenceIds({ ...seed, description })
   descriptionReady.value = true
   // Unlocking reveals the saved body; it is not an edit, even after metadata edits.
   baseline.value.description = description
   baseline.value.references = [...references.value].sort()
 }
-watch(() => props.entry && encryption.description(props.entry), () => { if (locked.value) unlocked() })
+watch(() => seed && encryption.description(seed), () => { if (locked.value) unlocked() })
 watch([encrypted, changingPassword], () => {
   if (!encrypted.value || (initialEncrypted && !changingPassword.value)) {
     password.value = ''
     confirmPassword.value = ''
   }
 })
-onUnmounted(() => { disposed = true; form.description = ''; password.value = ''; confirmPassword.value = '' })
+onUnmounted(() => { disposed = true; closeDateConfirmation(false); creationSeal = undefined; form.description = ''; password.value = ''; confirmPassword.value = '' })
 async function save() {
-  if (busy.value || uploading.value || props.saveDisabled || props.disabled) return
+  if (busy.value || uploading.value || dateConfirmation.value || props.saveDisabled || props.disabled) return
   if (form.description.length > DESCRIPTION_MAX_LENGTH) { error.value = `描述不能超过 ${DESCRIPTION_MAX_LENGTH} 字符。`; return }
   if (references.value.length > MAX_ENTRY_REFERENCES) { error.value = '最多引用 50 个不同事项，请移除多余引用后保存。'; return }
+  let acknowledgeAdjustments = false
+  if (recurrence.value && !singleInstance.value) {
+    if (undated.value) { error.value = '重复事项必须设置开始日期。'; return }
+    if (preview.value?.error) { error.value = preview.value.error; return }
+    if (preview.value?.adjustments.length) {
+      acknowledgeAdjustments = await new Promise<boolean>(resolve => {
+        dateConfirmation.value = { adjustments: preview.value!.adjustments, count: preview.value!.dates.length, resolve }
+      })
+      if (!acknowledgeAdjustments || disposed || props.saveDisabled || props.disabled) return
+    }
+  }
   busy.value = true
   error.value = ''
   const retention = encryption.prepareSave(props.entry)
   const description = form.description
+  const fingerprint = JSON.stringify(snapshot())
   try {
     let encryptedDescription = locked.value ? initialEncrypted : null
     let key: CryptoKey | undefined
-    if (encrypted.value && !locked.value) {
+    if (!props.entry && encrypted.value && creationSeal?.fingerprint === fingerprint) {
+      encryptedDescription = creationSeal.encryptedDescription
+      key = creationSeal.key
+    } else if (encrypted.value && !locked.value) {
       if (!initialEncrypted || changingPassword.value) {
         validateEncryptionPassword(password.value)
         if (password.value !== confirmPassword.value) throw new Error('两次输入的加密密码不一致')
@@ -115,18 +176,24 @@ async function save() {
         encryptedDescription = sealed.encryptedDescription
         key = sealed.key
       } else {
-        const secret = props.entry && encryption.get(props.entry)
+        const secret = seed && encryption.get(seed)
         if (!secret) throw new Error('描述已重新锁定，请关闭编辑器后重新解锁')
         key = secret.key
-        encryptedDescription = description === secret.description ? initialEncrypted
+        encryptedDescription = description === secret.description && !props.copySource ? initialEncrypted
           : await encryptDescriptionWithKey(description, key, initialEncrypted.salt)
       }
     }
+    // Preserve the exact ciphertext across an ambiguous creation retry (new IVs
+    // would make the server's stable request ID appear to contain different data).
+    if (!props.entry && encrypted.value) creationSeal = { fingerprint, encryptedDescription, key }
     if (disposed || !retention.isCurrent()) throw new Error('事项或空间已变化，请重新打开后保存')
     const snapshot = encryptedDescription && key ? { encryptedDescription, description, key } : undefined
     await props.submit({ ...form, description: encryptedDescription ? '' : description,
       encryptedDescription: encryptedDescription ?? null, date: undated.value ? null : form.date,
-      references: [...references.value], assetIds: [...assetIds.value] }, props.entry?.id,
+      references: [...references.value], assetIds: [...assetIds.value],
+      ...(!props.entry ? { requestId } : {}),
+      ...(!singleInstance.value ? { recurrence: recurrence.value, acknowledgeAdjustments } : {}),
+      ...(props.entry?.recurrence ? { scope: scope.value, seriesVersion: props.entry.recurrence.version } : {}) }, props.entry?.id,
       snapshot ? result => retention.confirm(result, snapshot) : undefined)
     if (!disposed) emit('saved')
   }
@@ -153,7 +220,7 @@ async function remove() {
   if (!props.entry || busy.value || uploading.value || props.saveDisabled) return
   busy.value = true
   error.value = ''
-  try { await props.remove(props.entry.id); if (!disposed) emit('removed') }
+  try { await props.remove(props.entry.id, props.entry.recurrence ? { scope: scope.value, seriesVersion: props.entry.recurrence.version } : undefined); if (!disposed) emit('removed') }
   catch (cause) { if (!disposed) error.value = (cause as Error).message }
   finally { busy.value = false }
 }
@@ -161,25 +228,23 @@ async function remove() {
 
 <template>
     <form @submit.prevent="save">
-      <fieldset :disabled="busy || uploading || disabled" class="form-fields">
-        <label class="field">事项标题<input v-model="form.title" required maxlength="200" placeholder="今天，想推进哪件小事？" autofocus></label>
-        <div class="field-row">
-          <div class="field">
-            <label for="entry-project">所属项目</label>
-            <USelect
-              id="entry-project" v-model="form.projectId" v-model:open="projectOpen" :items="projectItems"
-              :portal="false" :disabled="busy" required
-              :content="{ align: 'start', sideOffset: 4, collisionPadding: 8, onEscapeKeyDown: closeProjectOnEscape }"
-              :ui="{
-                base: 'w-full min-w-0 min-h-[43px] cursor-pointer rounded-lg border border-[#e5dfed] bg-[#fdfcfe] px-3 text-left text-[#5c5368] focus-visible:border-primary focus-visible:ring-primary',
-                content: 'max-w-[calc(100vw-48px)] rounded-lg bg-white ring-[#eeedf3] shadow-[0_8px_28px_#30273f14]',
-                item: 'cursor-pointer data-highlighted:not-data-disabled:text-primary data-highlighted:not-data-disabled:before:bg-[#fff4f8] data-[state=checked]:text-primary',
-                itemTrailingIcon: 'text-primary',
-              }"
-            />
-          </div>
-          <div class="field"><div class="date-field-heading"><span>记录日期</span><label class="checkbox-label date-option"><input v-model="undated" type="checkbox">不设日期</label></div><span v-if="undated" class="undated-placeholder">未设日期</span><DatePicker v-else v-model="form.date" label="记录日期" :disabled="busy" :portal="false" /></div>
+      <fieldset :disabled="fieldsDisabled" class="form-fields">
+        <p v-if="copySource" class="field-help copy-source-note">正在复制已保存事项，保存后创建独立的新事项。</p>
+        <div class="entry-fields-row">
+          <label class="field">事项标题<input v-model="form.title" required maxlength="200" placeholder="今天，想推进哪件小事？" autofocus></label>
+          <FormSelect v-model="form.projectId" label="所属项目" :items="projectItems" :disabled="fieldsDisabled" required />
         </div>
+        <FormSelect v-if="entry?.recurrence" v-model="scope" label="修改／删除范围" :items="scopeItems" :disabled="fieldsDisabled" />
+        <section class="recurrence-settings" aria-label="重复设置">
+          <div class="entry-fields-row">
+            <div class="field"><span>{{ entry?.recurrence && scope !== 'single' ? '开始日期' : '记录日期' }}</span><DatePicker v-model="selectedDate" label="记录日期" :disabled="fieldsDisabled" :clearable="!frequency || singleInstance" :default-date="form.date" /></div>
+            <FormSelect v-model="frequency" label="重复" :items="frequencyItems" :disabled="fieldsDisabled || singleInstance" />
+            <div v-if="frequency" class="field"><span>截止日期</span><DatePicker v-model="until" label="截止日期" placeholder="选择截止日期" :min="singleInstance ? entry?.recurrence?.rule.startDate : form.date" :default-date="form.date" :required="!singleInstance" :disabled="fieldsDisabled || singleInstance" /></div>
+          </div>
+          <p v-if="singleInstance" class="field-help">本次原始排期：{{ entry?.recurrence?.scheduledDate }}。单次修改不会改变重复规则。</p>
+          <template v-else-if="preview"><p v-if="preview.error" class="field-help danger-text">{{ preview.error }}</p><p v-else class="field-help">预计安排 {{ preview.dates.length }} 次：{{ preview.dates.slice(0, 3).join('、') }}{{ preview.dates.length > 3 ? '…' : '' }}<span v-if="preview.adjustments.length">；{{ preview.adjustments.length }} 次使用当月最后一天，保存时需确认。</span></p></template>
+          <p v-if="entry?.recurrence && scope !== 'single'" class="field-help">批量编辑保留各次完成状态与其他单次例外；更改规则时，不再符合排期的已完成或单次调整记录会保留为独立事项。</p>
+        </section>
         <section class="description-security" aria-label="描述加密设置">
           <label class="checkbox-label"><input v-model="encrypted" type="checkbox" :disabled="locked">加密描述</label>
           <p class="field-help">仅加密描述正文；标题、项目、日期、状态、引用关系和附件仍可见。密码和解密内容仅留在当前页面内存中。</p>
@@ -191,7 +256,7 @@ async function remove() {
             </div>
             <p v-if="!initialEncrypted || changingPassword" class="field-help">请记住此事项的独立密码，忘记后无法恢复描述。成功保存并同步后保持解锁；刷新、切换邮箱或主动锁定后需重新输入口令。</p>
           </template>
-          <EntryUnlock v-if="locked && entry" :entry="entry" @unlocked="unlocked" />
+          <EntryUnlock v-if="locked && seed" :entry="seed" @unlocked="unlocked" />
           <p v-if="locked" class="field-help">可直接修改其他字段，原密文和引用会保留；修改描述、更改密码或取消加密前请先解锁。</p>
         </section>
         <EntryDescriptionEditor v-if="!locked" :model-value="form.description" :entries="entries" :projects="projects" :references="references" :self-id="entry?.id" :disabled="busy" @update:model-value="updateDescription" />
@@ -208,12 +273,13 @@ async function remove() {
           <div class="reference-group"><button v-for="id in legacy" :key="id" type="button" class="reference-chip" :aria-label="`移除引用 @${entryMap.get(id)?.title || '事项已删除'}`" @click="legacy = legacy.filter(value => value !== id)">@{{ entryMap.get(id)?.title || '事项已删除' }}<AppIcon name="close" :size="12" /></button></div>
         </section>
         <div v-if="incoming.length" class="backlinks-note"><AppIcon name="link" :size="15" /><span>被 {{ incoming.length }} 个事项引用：{{ incoming.map(item => `@${item.title}`).join('、') }}</span></div>
-        <div v-if="confirming" class="delete-confirm"><p>确定删除这个事项？其他事项中指向它的引用也会移除。</p><button type="button" class="button danger" :disabled="saveDisabled" @click="remove">确认删除事项</button><button type="button" class="button ghost" @click="confirming = false">取消</button></div>
+        <div v-if="confirming" class="delete-confirm"><p>确定删除{{ entry?.recurrence && scope === 'all' ? '整个重复系列' : entry?.recurrence && scope === 'following' ? '本次及以后的事项' : '这个事项' }}？其他事项中指向它们的引用也会移除。</p><button type="button" class="button danger" :disabled="saveDisabled" @click="remove">确认删除事项</button><button type="button" class="button ghost" @click="confirming = false">取消</button></div>
         <p v-if="error" class="form-error" role="alert">{{ error }}</p>
         <footer class="form-footer entry-form-footer">
           <div class="entry-footer-settings" role="group" aria-label="事项操作">
             <button type="button" class="icon-button completion-field" :aria-label="form.completed ? '标为未完成' : '标为完成'" :title="form.completed ? '已完成 · 点击标为未完成' : '未完成 · 点击标为完成'" :aria-pressed="form.completed" @click="form.completed = !form.completed"><AppIcon :name="form.completed ? 'circleCheck' : 'circle'" :size="20" /></button>
             <button v-if="entry && !confirming" type="button" class="icon-button" aria-label="导出已保存事项" title="导出已保存事项" @click="emit('export', entry)"><AppIcon name="print" :size="18" /></button>
+            <button v-if="entry && !confirming" type="button" class="icon-button" aria-label="复制已保存事项" title="复制已保存事项" @click="emit('copy', entry)"><AppIcon name="copy" :size="18" /></button>
             <button v-if="entry && !confirming" type="button" class="icon-button danger-text" aria-label="删除事项" title="删除事项" @click="confirming = true"><AppIcon name="trash" /></button>
           </div>
           <div class="entry-footer-actions">
@@ -223,4 +289,5 @@ async function remove() {
         </footer>
       </fieldset>
     </form>
+    <RecurrenceDateConfirm v-if="dateConfirmation" :adjustments="dateConfirmation.adjustments" :count="dateConfirmation.count" @confirm="closeDateConfirmation(true)" @cancel="closeDateConfirmation(false)" />
 </template>

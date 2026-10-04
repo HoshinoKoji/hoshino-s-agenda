@@ -1,4 +1,4 @@
-import type { AgendaData, Asset, Entry, EntryInput, EntrySaveResult, ProjectInput } from '../../../../shared/types'
+import type { AgendaData, Asset, Entry, EntryInput, EntryRemoveOptions, EntrySaveResult, ProjectInput } from '../../../../shared/types'
 
 export function useAgenda(email: Ref<string>) {
   const data = ref<AgendaData>({ projects: [], entries: [], assets: [] })
@@ -73,7 +73,7 @@ export function useAgenda(email: Ref<string>) {
   const saveEntry = (input: EntryInput, id?: string, onSaved?: (result: EntrySaveResult) => void) =>
     mutate<EntrySaveResult>(id ? `/entries/${id}` : '/entries', id ? 'PUT' : 'POST', input, onSaved)
   const deleteProject = (id: string) => mutate(`/projects/${id}`, 'DELETE')
-  const deleteEntry = (id: string) => mutate(`/entries/${id}`, 'DELETE')
+  const deleteEntry = (id: string, options?: EntryRemoveOptions) => mutate(`/entries/${id}`, 'DELETE', options)
   const deleteAsset = (id: string) => mutate(`/assets/${id}`, 'DELETE')
   const renameAsset = (id: string, name: string) => mutate(`/assets/${id}`, 'PATCH', { name })
 

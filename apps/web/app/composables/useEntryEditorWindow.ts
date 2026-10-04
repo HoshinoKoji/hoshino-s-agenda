@@ -14,11 +14,11 @@ export function useEntryEditorWindow(email: Ref<string>) {
   onMounted(() => window.addEventListener('pagehide', cancel))
   onUnmounted(() => { cancel(); window.removeEventListener('pagehide', cancel) })
 
-  function open(entryId: string, date: string | null, projectId: string, unlockToken: string, onReady: () => void, fromDialog = true) {
+  function open(entryId: string, date: string | null, projectId: string, unlockToken: string, onReady: () => void, fromDialog = true, copy = false) {
     cancel()
     const token = crypto.randomUUID()
     const account = email.value
-    const query = new URLSearchParams(entryId ? { editEntry: entryId } : { newEntry: '1', project: projectId, date: date ?? '' })
+    const query = new URLSearchParams(entryId ? copy ? { copyEntry: entryId } : { editEntry: entryId } : { newEntry: '1', project: projectId, date: date ?? '' })
     const fragment = new URLSearchParams({ editSession: token })
     if (unlockToken) fragment.set('editUnlock', unlockToken)
     let channel: BroadcastChannel | undefined

@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { check, foreignKey, index, integer, primaryKey, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core'
-import type { EncryptedDescription } from '../../../../shared/types'
+import type { EncryptedDescription, RecurrenceRule } from '../../../../shared/types'
 
 export const accounts = sqliteTable('accounts', {
   email: text('email').primaryKey(),
@@ -20,6 +20,24 @@ export const projects = sqliteTable('projects', {
   check('projects_name_length', sql`length(${table.name}) BETWEEN 1 AND 64`),
 ])
 
+export const entrySeries = sqliteTable('entry_series', {
+  id: text('id').primaryKey(),
+  ownerEmail: text('owner_email').notNull().references(() => accounts.email, { onDelete: 'cascade' }),
+  rule: text('rule', { mode: 'json' }).$type<RecurrenceRule>().notNull(),
+  version: integer('version').notNull().default(0),
+}, table => [unique().on(table.id, table.ownerEmail), index('entry_series_owner').on(table.ownerEmail)])
+
+// Claiming the previous version inside the write batch is an atomic conflict guard.
+export const seriesMutations = sqliteTable('series_mutations', {
+  seriesId: text('series_id').notNull().references(() => entrySeries.id, { onDelete: 'cascade' }),
+  version: integer('version').notNull(),
+}, table => [primaryKey({ columns: [table.seriesId, table.version] })])
+
+export const seriesSkips = sqliteTable('series_skips', {
+  seriesId: text('series_id').notNull().references(() => entrySeries.id, { onDelete: 'cascade' }),
+  date: text('date').notNull(),
+}, table => [primaryKey({ columns: [table.seriesId, table.date] })])
+
 export const entries = sqliteTable('entries', {
   id: text('id').primaryKey(),
   ownerEmail: text('owner_email').notNull().references(() => accounts.email, { onDelete: 'cascade' }),
@@ -31,9 +49,14 @@ export const entries = sqliteTable('entries', {
   completed: integer('completed', { mode: 'boolean' }).notNull().default(false),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
+  seriesId: text('series_id').references(() => entrySeries.id, { onDelete: 'cascade' }),
+  scheduledDate: text('scheduled_date'),
+  exception: integer('recurrence_exception', { mode: 'boolean' }).notNull().default(false),
 }, table => [
   unique().on(table.id, table.ownerEmail),
   foreignKey({ columns: [table.projectId, table.ownerEmail], foreignColumns: [projects.id, projects.ownerEmail] }).onDelete('cascade'),
+  foreignKey({ columns: [table.seriesId, table.ownerEmail], foreignColumns: [entrySeries.id, entrySeries.ownerEmail] }).onDelete('cascade'),
+  unique().on(table.seriesId, table.scheduledDate),
   index('entries_owner_date').on(table.ownerEmail, table.date),
   index('entries_project').on(table.projectId),
   check('entries_title_length', sql`length(${table.title}) BETWEEN 1 AND 200`),

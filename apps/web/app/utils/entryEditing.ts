@@ -2,7 +2,16 @@ import type { Entry, EntryInput } from '../../../../shared/types'
 
 /** Include relations as their cleanup need not change updatedAt. */
 export function entryRevision(entry: Entry | undefined): string {
-  return entry ? JSON.stringify({ ...entry, references: [...entry.references].sort(), assetIds: [...entry.assetIds].sort() }) : ''
+  if (!entry) return ''
+  const repeat = entry.recurrence
+  return JSON.stringify({
+    id: entry.id, projectId: entry.projectId, date: entry.date, title: entry.title, description: entry.description,
+    encryptedDescription: entry.encryptedDescription ?? null, completed: entry.completed,
+    createdAt: entry.createdAt, updatedAt: entry.updatedAt,
+    references: [...entry.references].sort(), assetIds: [...entry.assetIds].sort(),
+    recurrence: repeat ? { seriesId: repeat.seriesId, scheduledDate: repeat.scheduledDate, exception: repeat.exception,
+      version: repeat.version, rule: { frequency: repeat.rule.frequency, startDate: repeat.rule.startDate, until: repeat.rule.until, anchorDate: repeat.rule.anchorDate } } : null,
+  })
 }
 
 export function matchesSavedInput(entry: Entry, input: EntryInput): boolean {

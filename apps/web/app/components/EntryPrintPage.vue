@@ -2,6 +2,7 @@
 import type { Asset, Entry, Project } from '../../../../shared/types'
 import { legacyReferenceIds } from '../../../../shared/mentions'
 import { dateKey } from '~/utils/dates'
+import { RECURRENCE_LABELS } from '../../../../shared/recurrence'
 
 const props = defineProps<{
   entryId: string
@@ -63,6 +64,7 @@ useHead({ title: computed(() => entry.value ? `${entry.value.title} · 日迹事
         <div><dt>记录日期</dt><dd>{{ entry.date ?? '未设日期' }}</dd></div>
         <div><dt>状态</dt><dd>{{ entry.completed ? '已完成' : '进行中' }}</dd></div>
         <div><dt>添加日期</dt><dd>{{ dateKey(new Date(entry.createdAt)) }}</dd></div>
+        <div v-if="entry.recurrence"><dt>重复</dt><dd>{{ RECURRENCE_LABELS[entry.recurrence.rule.frequency] }} · 截止 {{ entry.recurrence.rule.until }}</dd></div>
       </dl>
       <section v-if="entry.description || entry.encryptedDescription" class="print-section">
         <h2>描述</h2>

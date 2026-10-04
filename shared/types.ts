@@ -20,6 +20,23 @@ export interface Project {
   createdAt: string
 }
 
+export type RecurrenceFrequency = 'daily' | 'weekdays' | 'weekly' | 'monthly' | 'yearly'
+export type RecurrenceScope = 'single' | 'following' | 'all'
+export interface RecurrenceRule {
+  frequency: RecurrenceFrequency
+  startDate: string
+  until: string
+  // Preserve the original month/day when splitting a clamped occurrence's future.
+  anchorDate?: string
+}
+export interface EntryRecurrence {
+  seriesId: string
+  scheduledDate: string
+  exception: boolean
+  version: number
+  rule: RecurrenceRule
+}
+
 export interface Entry {
   id: string
   projectId: string
@@ -34,9 +51,15 @@ export interface Entry {
   assetIds: string[]
   createdAt: string
   updatedAt: string
+  recurrence?: EntryRecurrence
 }
 
-export type EntrySaveResult = Pick<Entry, 'id' | 'description' | 'encryptedDescription'>
+export type EntrySaveResult = Pick<Entry, 'id' | 'description' | 'encryptedDescription'> & { savedEntry?: Entry }
+
+export interface EntryRemoveOptions {
+  scope: RecurrenceScope
+  seriesVersion: number
+}
 
 export interface AgendaData {
   projects: Project[]
@@ -70,4 +93,11 @@ export interface EntryInput {
   completed: boolean
   references: string[]
   assetIds?: string[]
+  recurrence?: RecurrenceRule | null
+  scope?: RecurrenceScope
+  seriesVersion?: number
+  // Explicit acknowledgement of the nonexistent-date modal.
+  acknowledgeAdjustments?: boolean
+  // A stable creation ID makes retrying an acknowledged/ambiguous POST idempotent.
+  requestId?: string
 }

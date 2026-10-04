@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { Entry, Project } from '../../../../shared/types'
 import { dateKey } from '~/utils/dates'
+import { RECURRENCE_LABELS } from '../../../../shared/recurrence'
 
 const props = defineProps<{ entry: Entry; entries: Entry[]; projects: Project[] }>()
 const project = computed(() => props.projects.find(project => project.id === props.entry.projectId))
@@ -8,6 +9,7 @@ const project = computed(() => props.projects.find(project => project.id === pro
 
 <template>
   <strong class="calendar-tooltip-title">{{ entry.title }}</strong>
-  <div class="calendar-tooltip-meta"><span v-if="project"><i class="project-dot" :style="{ background: project.color }" />{{ project.name }}</span><span>{{ entry.date ?? '未设日期' }}</span><time :datetime="entry.createdAt">添加于 {{ dateKey(new Date(entry.createdAt)) }}</time><span>{{ entry.completed ? '已完成' : '进行中' }}</span></div>
+    <div class="calendar-tooltip-meta"><span v-if="project"><i class="project-dot" :style="{ background: project.color }" />{{ project.name }}</span><span>{{ entry.date ?? '未设日期' }}</span><time :datetime="entry.createdAt">添加于 {{ dateKey(new Date(entry.createdAt)) }}</time><span>{{ entry.completed ? '已完成' : '进行中' }}</span></div>
+    <p v-if="entry.recurrence" class="field-help">{{ RECURRENCE_LABELS[entry.recurrence.rule.frequency] }}重复 · 截止 {{ entry.recurrence.rule.until }}</p>
   <EntryDescription :entry="entry" :entries="entries" :projects="projects" :interactive="false" />
 </template>
