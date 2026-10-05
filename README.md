@@ -4,6 +4,18 @@
 
 输入邮箱即可打开对应的数据空间。邮箱会去除首尾空格并转换为小写；目前无需密码或验证码，任何输入同一邮箱的人都能读取和修改该空间。浏览器仅记住邮箱；项目、事项、素材元数据和关联保存在 Cloudflare D1，文件保存在私有 R2 存储桶。
 
+## 安卓提醒与桌面组件
+
+`apps/android/` 提供 Kotlin 原生伴侣 App，默认每天本地时间 **09:00** 汇总，桌面组件展示未来七天未完成清单，复杂编辑打开现有浏览器页面。通过 Cloudflare Access **Managed OAuth** 授权和续期，使用本地缓存支撑提醒及组件。
+
+```sh
+bun run android:setup
+bun run android:check
+bun run android:assetlinks
+```
+
+APK 位于 `apps/android/app/build/outputs/apk/debug/app-debug.apk`。首次使用前需要开启 Managed OAuth，并发布与 APK 签名一致的 `/.well-known/assetlinks.json`，允许该公有文件匿名读取。完整工具链、签名、Access 配置、HyperOS 设置和行为说明见 [安卓 README](./apps/android/README.md)。
+
 ## 本地启动
 
 工具链版本由仓库管理：**Bun 1.3.14**、Linux x64 / arm64 的 **Node.js 22.23.3** 都作为依赖安装到 `node_modules`，版本及完整性由 `bun.lock` 固定。容器只需提供可用于首次安装的 Bun、网络及系统库；无需全局安装 Node.js 或 npm。以下命令均在项目根目录执行。

@@ -24,3 +24,11 @@ playwright-report/
 *.p12
 *.pfx
 .DS_Store
+# Android tools, machine-local configuration, credentials and build outputs.
+.android-tools/
+.gradle/
+.kotlin/
+build/
+local.properties
+*.jks
+*.keystore

@@ -7,6 +7,138 @@
 - 全量发现失败后，修复完成优先复验失败用例及受影响专项；这些检查通过且没有新的跨模块变动或未解决问题时，复用已有全量记录。再次全量需有具体的新变更或验证理由。
 - 复用同轮已完成且仍适用的验证结果；纯文档调整或 Git 提交只做相应必要检查，不触发应用全量测试。在交接中准确记录实际验证范围、结果与剩余事项，明确区分全量和专项。
 
+## 本轮：安卓伴侣 App 全部提交交接（2026-10-05）
+
+已编写：
+
+- 按用户「先全部提交一次」要求，本次提交包含 Kotlin 安卓伴侣 App 0.1.3、Managed OAuth / 注册兼容与诊断、原生每日汇总和七天组件、本地同步、HTTPS / 手动回跳、固定工具链 / Gradle Wrapper / 原生依赖锁 / Room schema、Web 关联及回跳资源、对应测试和 README / HANDOFF，共 55 个文件（6 个已有文件修改、49 个新增文件）。具体实现与修复过程见下方各节。
+
+已验证：
+
+- 提交前已检查全部工作区差异、逐文件检查 49 个新增文件及最近 10 条提交；Gradle Wrapper JAR 的 SHA-256 与脚本固定的官方摘要一致。Git 忽略检查确认私有签名、工具 / Gradle / Kotlin 缓存、APK 和测试产物被排除，新增 JSON 仅含公有证书指纹 / 伪客户端注册夹具，无真实凭据。
+- APK 构建、lint、签名、测试类型检查及专项结果复用同轮记录：最新安卓授权 / 回跳专项 **16/16**、API / 桌面 / 手机回跳专项 **8/8**，其余相关用例已有前轮通过记录；未因提交重复运行应用全量测试。用户已手动确认主力 HyperOS / Firefox 的 HTTPS 登录回跳及首次同步通过。
+- `git diff --check` 与暂存差异检查通过；已核对暂存的 55 个文件，唯一二进制为校验过的 43,705 字节 Gradle Wrapper JAR。本轮业务验证范围和仍需真机验证的边界按上方记录保留。
+
+待完成 / 边界：
+
+- 未推送；0.1.3 的备用回跳页面未由代理远程部署，发布此路径需同步安装新 APK 和更新网站页面。用户目前通过 Firefox 手动设置已能正常自动回跳。
+- 每日提醒、七天桌面组件、长期续期和备用按钮的主力机验证仍待完成。GitHub Actions 自动发行及正式签名仅讨论过方案，尚未实现。
+- 私有调试签名保留在被忽略的 `.android-tools/android-user/debug.keystore`，仍需单独备份；APK 不随源码提交。
+
+## 本轮：Firefox 回跳设置验证与手动回跳兼容（2026-10-05）
+
+已编写：
+
+- 用户反馈浏览器已认证但未返回 App，停在「请返回日迹安卓 App」，浏览器为 Firefox。按用户允许手动操作的偏好，指导在 Firefox 设置中将「在应用中打开链接」改为询问 / 始终，并从 App 重新发起登录。
+- 本地新增 0.1.3 / code 4 手动回跳兼容：HTTPS 回跳页面先将 code/state 或 error/state保留于当前页面闭包，再立即清除历史地址，提供自定义 scheme「返回日迹 App」及固定包名 / 组件的 intent 链接；不写浏览器存储、发网络请求或交接访问令牌。
+- 新增导出的精确 `OAuthLinkActivity`，从本机加密保存的 pending request 校验地址、参数集合、唯一 state、code/error 互斥及长度，使用原始 HTTPS redirect_uri / PKCE verifier 交换授权。共享互斥 / 一次性消费，拒绝缺少请求的重放；忽略已消费请求后旧 AppAuth 浏览器任务的迟到取消通知。原 SDK 完成 Activity 保持非导出，普通网页链接不被 App 接管。
+- App 增加「回跳设置」按钮直达 `ACTION_APP_OPEN_BY_DEFAULT_SETTINGS`，系统不支持时回退应用详情，并说明 Firefox 的外部应用链接设置。增加 6 项 API 36 回跳测试、桌面 / 手机各 3 项 Web 回跳测试，更新安卓 README 的自动与备用手动方案。
+
+已验证：
+
+- **用户手动确认：调整 Firefox 设置并重新登录后，已返回 App 并同步**。因此主力 HyperOS / Firefox 上的动态注册 → 浏览器认证 → HTTPS 回跳 → 授权交换 → 首次数据同步已有真实通过反馈；本次没有取得或记录其令牌。已解决当前回跳阻塞，真实长期续期与提醒 / 组件尚未验证。
+- 合并 `OAuthRedirectTest / OAuthRegistrationTest / OAuthFailureTest` 专项 **16/16 通过，APK 构建与 lint 通过**。覆盖 HTTPS redirect / PKCE 绑定、不匹配或重复 state、其他地址 / 参数与隐式令牌拒绝、错误结果、Manifest 路由、缺少尝试拒绝和迟到取消处理。
+- 单 Worker 生产模式合并 API 部署 / 桌面 / 手机回跳专项 **8/8 通过**（2 API + 3 桌面 + 3 手机），覆盖清除 query、正确自定义 / intent 链接、Unicode / 注入式字符编码、只转发授权码结果、无浏览器存储、无效结果隐藏链接及刷新失效。已检查 320px 手机回跳页面截图，无横向溢出，主要按钮在前部。浏览器自动验证为 Chromium，不能替代 Firefox Android 的手动外部应用行为验证。
+- `bun run typecheck:tests`、APK apksigner 检查与 `git diff --check` 通过，签名继续匹配已发布域名关联。没有重跑既有全量套件。
+- `wrangler whoami` 仍显示代理环境未登录 Cloudflare；本代理未部署新版回跳页面。
+
+待完成 / 边界：
+
+- 当前用户通过手动 Firefox 设置已解决回跳，可继续验证每日汇总与七天组件。若发布备用按钮方案，需同时安装 `apps/android/app/build/outputs/apk/debug/app-debug.apk`（0.1.3）并由已登录的环境运行 `bun run deploy` 更新页面，随后从 App 发起新的登录；旧页面已丢失的 query 不可恢复。Managed OAuth 的 Allowed redirect URI 继续为 HTTPS，无需添加 custom scheme。
+- 备用网页按钮 / 新入口的真实 Firefox Android 打开与授权交换仍未真机验证；主力机通过的是既有 HTTPS 自动回跳路径。新版文件留在工作区，未提交或远程部署。
+- 本轮测试包含新回跳分支与布局，报告 / 截图在 `apps/android/app/build/reports/`、`playwright-report/` 和 `test-results/`；安卓新增回跳后的完整测试集合为 40 项，本轮只运行 16 项相关专项。
+
+## 本轮：Cloudflare 注册管理字段与 AppAuth 解析兼容（2026-10-05）
+
+已编写：
+
+- 用户安装 0.1.1 后反馈「Access 返回的客户端注册信息不完整」。核对真实注册响应与 AppAuth 0.11.1 源码，确认 Cloudflare 返回 `registration_client_uri`，但未返回 `registration_access_token`；AppAuth 按可选 RFC 7592 管理字段必须成对的规则抛出 MissingArgumentException。前轮最小模型夹具没有管理 URI，未覆盖该真实响应特征。
+- 新增 `OAuthRegistration.parse`：App 不使用注册管理 API，因此忽略不完整的可选管理字段对，不伪造管理令牌；完整字段对仍保留，可选 JSON null 按缺省处理。client_id 必须是非空字符串，client secret 的必需过期字段仍按 AppAuth 校验。缺少必需字段时显示字段名，不输出响应或凭据。
+- 增加按线上完整字段结构建立的注册 JSON 夹具，仅将 live client_id 替换为固定测试 UUID；新增 6 项 API 36 回归。版本提升为 **0.1.2 / versionCode 3**，安卓 README 更新兼容说明和 34 项测试组成。
+
+已验证：
+
+- 从当前环境匿名 POST 正式注册端点，实测 **201**。仅打印字段类型 / 是否存在 / 公开数值，确认 management URI 单独存在、client_id 为字符串、issued_at 为数字及 public `none` 方法；没有输出真实客户端 ID 或凭据。此次注册新建一个公共测试客户端，未进行账户登录或授权码交换。
+- `bun run android:build :app:lintDebug :app:testDebugUnitTest --tests '*OAuthRegistrationTest' --tests '*OAuthFailureTest' --tests '*OAuthProtocolTest' --offline` **13/13 通过，lint 无错误，APK 构建成功**。夹具实际复现旧 SDK 缺少 `registration_access_token` 的错误，适配后验证客户端模型、AuthState 保存 / 恢复、授权 URL 的 client_id / S256 / resource，另覆盖完整管理字段、null、无效 client_id 和缺少机密凭据过期字段的拒绝。
+- APK metadata 确认 0.1.2 / code 3，apksigner 验证通过，证书 SHA-256 仍为 `92:BA:C2:13:A4:F5:BE:C4:14:38:DF:97:A9:F0:C2:CF:ED:15:B8:59:AF:A2:4E:66:AD:E9:75:EC:36:51:62:85`。`git diff --check` 通过。复用前轮网络 / 提醒 / 应用运行验证，无全量重跑。
+
+待完成 / 边界：
+
+- 手机覆盖安装 `apps/android/app/build/outputs/apk/debug/app-debug.apk`（0.1.2），重新发起 Access 登录。解析后的请求构造已有自动验证，真正的浏览器登录、回跳、授权交换与数据同步仍需主力机确认。
+- 同签名更新匹配现有域名关联，未调整远程 Access 策略或 Web / API / D1；当前修改未提交。
+
+## 本轮：登录前 Network error、UTF-8 注册请求与诊断修复（2026-10-05）
+
+已编写：
+
+- 用户确认错误发生在点击 Access 登录后、浏览器尚未打开的阶段。检查 AppAuth **0.11.1** 的 `AuthorizationService.RegistrationRequestTask`，发现其 JSON POST 用 `postData.length()` 设置 Content-Length，随后通过 UTF-8 writer 写出；原客户端名称 `日迹 · Android` 含中文和非 ASCII 字符，字符长度小于实际字节数，该缺陷与注册阶段笼统 Network error 相符。
+- 动态注册改为通过现有 OkHttp 客户端发送 UTF-8 JSON，正确计算字节长度；成功响应继续使用 AppAuth `RegistrationResponse` / `AuthState` 模型，保持 public client、PKCE、不可导出本机密钥及既有续期流程。注册失败读取有界错误响应，保留 HTTP 状态与已知 OAuth 错误码；拒绝跟随跳转和把 HTML 登录页当作注册成功。
+- 新增 `OAuthFailure / OAuthErrors`，区分配置发现、注册、浏览器启动、授权码交换及续期，并显示端点主机、DNS / TLS / 超时 / 连接错误或已知协议错误。提示不回显服务器自由文本、带凭据的 URL、授权码或令牌。
+- 自动前台 / 后台同步在没有可用授权时仅更新本地排程与组件，保留详细登录错误，避免被「请先登录」覆盖；手动同步继续明确报告未授权。
+- 新增 4 项注册网络回归、4 项 Android 16 OAuth 诊断 / AppAuth 模型回归和 1 项自动刷新错误保留回归。版本提升为 **0.1.1 / versionCode 2**，同签名覆盖更新；安卓 README 增加诊断与更新后的 28 项测试组成。
+
+已验证：
+
+- 从当前环境向正式 `hoshinokoji.cloudflareaccess.com/cdn-cgi/access/oauth/registration` 发送与 App 一致的 UTF-8 注册 JSON，实测 **201 application/json**，返回 public client ID、`token_endpoint_auth_method=none`，没有 client secret。此次匿名动态注册新建了一个公共测试客户端；未进行用户登录或授权码交换，日志仅记录状态和字段是否存在，未打印凭据。
+- 合并「AgendaHttpTest / OAuthFailureTest / OAuthProtocolTest」专项 **15/15 通过**，覆盖完整中文 / emoji JSON、UTF-8 字节数对应 Content-Length、HTTP 400 回跳拒绝、302 不跟随、超长 403 HTML 错误状态保留、成功 HTML 拒绝、AppAuth 公共客户端模型及错误原因分类 / 敏感数据不回显。
+- 自动刷新调整后合并「AndroidIntegrationTest + lint + APK」专项 **6/6 通过**，包括界面启动、数据隔离、原提醒回归及详细错误保留。相关 21 项均有通过记录，未重复日期纯函数和既有 Web 全量。
+- 仅版本号 / 文档调整后执行 `bun run android:build :app:lintDebug --offline` 通过；APK metadata 确认 0.1.1 / code 2，apksigner 验证通过，证书 SHA-256 仍为 `92:BA:C2:13:A4:F5:BE:C4:14:38:DF:97:A9:F0:C2:CF:ED:15:B8:59:AF:A2:4E:66:AD:E9:75:EC:36:51:62:85`，匹配现有域名关联。`git diff --check` 通过，未修改关联文件、API / D1 或 Access 策略。
+
+待完成 / 边界：
+
+- 手机需覆盖安装更新后的 `apps/android/app/build/outputs/apk/debug/app-debug.apk`（0.1.1），重新点击 Access 登录。没有取得主力手机底层网络异常栈，不能将当前环境注册成功和本地修复视为手机真实登录已通过；若仍失败，反馈新的完整中文阶段 / DNS / TLS / HTTP 提示即可进一步定位。
+- 浏览器授权回跳、实际数据同步、长期续期及 HyperOS 提醒 / 组件的真机联调仍待完成。当前私有调试签名保持不变，用户讨论的 GitHub Actions 发行签名尚未实施。
+- 当前修改未提交；最新本地测试报告是 6 项 AndroidIntegrationTest 专项，15 项 OAuth / HTTP 结果沿用此前同轮记录。
+
+## 本轮：线上域名关联与 Managed OAuth 发现验证（2026-10-05）
+
+已编写：
+
+- 用户完成 assetlinks 独立 Access 应用的精确路径 Bypass，并确认匿名读取成功。核对线上 OAuth protected-resource 元数据后，将安卓 `OAuthProtocol.RESOURCE` 从带末尾 `/` 的值对齐为服务实际声明的 `https://agenda.hoshino.club`；授权、初次交换及续期均使用该常量。更新安卓 README 并重建同签名 APK。
+
+已验证：
+
+- 对正式站点进行匿名 GET，明确禁止跟随跳转：`/.well-known/assetlinks.json`、`/.well-known/oauth-authorization-server`、`/.well-known/oauth-protected-resource` 均为 **200 application/json，无 Location 跳转**。
+- 正式 assetlinks 的包名 `club.hoshino.agenda`、公有 SHA-256 指纹与当前 APK 一致。授权服务器元数据声明了动态注册端点、`authorization_code / refresh_token`、public client 的 `none` 认证及 S256 PKCE，端点均位于已允许的 `hoshinokoji.cloudflareaccess.com`。资源元数据声明 `resource=https://agenda.hoshino.club`，已按精确值对齐客户端。
+- `bun run android:build :app:testDebugUnitTest --tests '*OAuthProtocolTest' --offline` **3/3 通过，APK 构建成功**；更新后 APK 的 apksigner 签名检查及 `git diff --check` 通过，仍匹配已发布关联文件。仅复验受影响 OAuth 专项，复用前轮原生 / Web 检查记录。
+- 匿名访问 `/android/oauth/callback` 为 **401 application/json，无跳转**，说明该地址仍处于 Access 认证控制下；此响应无法证明受保护回退页的实际内容，不将其计为真实登录成功。
+
+待完成 / 边界：
+
+- 已确认公开文件与 OAuth 发现可用，控制台的精确 Allowed redirect URI 仍需用户确认是 `https://agenda.hoshino.club/android/oauth/callback`；元数据不会公开这一允许列表。
+- 覆盖安装更新后的 `apps/android/app/build/outputs/apk/debug/app-debug.apk`，在主力机开启支持链接，输入对应邮箱空间并发起新的 Access 登录，验证动态注册、浏览器回跳及首次同步；然后验证续期与 HyperOS 提醒 / 桌面组件。没有取得用户账户授权或连接实体手机，本轮未进行真实授权码交换，未新建远程测试客户端。
+- 本轮由用户完成远程配置 / 发布，本代理做匿名核验和本地客户端对齐；关联文件无需因本次同签名 APK 更新重新生成。当前修改未提交。
+
+## 本轮：安卓伴侣 App、每日汇总与七天桌面组件（2026-10-04）
+
+已编写：
+
+- 用户确认：复杂编辑交给浏览器，固定时间汇总默认本地 **09:00**，组件显示未来七天；域名为 `https://agenda.hoshino.club/`，全路径 Cloudflare Access，主力环境 **HyperOS 3.0.307.0 / Android 16**，认证选择 **Managed OAuth**。
+- 新增 `apps/android/` Kotlin / Compose 原生工程，包名 `club.hoshino.agenda`，min SDK 26 / target SDK 36。提供邮箱空间、Access 登录、原生七天清单、同步及状态、汇总时间修改与开关、通知 / 精确闹钟 / HyperOS 自启动设置入口和组件添加入口。事项点击沿用浏览器 `?editEntry=<id>`；回前台自动同步。
+- AppAuth 动态客户端注册、授权码 + S256 PKCE、RFC 8707 resource、HTTPS 精确回跳及刷新令牌续期。授权状态和待回跳请求使用 Android Keystore AES-256-GCM 加密，校验请求与 state、防回跳重放；令牌交换 / 续期互斥且保存旋转后的令牌。OAuth 元数据限定 HTTPS 与本站 / 已确认的 Access team 域名。原生网络拒绝跟随授权跳转，识别过期授权 / HTML 登录页并有界读取响应。
+- 复用现有 `/api/agenda`，Room 只缓存清单必要的项目与事项元数据，不保存描述、附件或解锁密钥。数据与同步标记原子替换，界面 / 组件按事务读取完整快照；空间切换以新代次拒绝迟到写入。WorkManager 每 30 分钟按系统调度同步，失败保留缓存和同步时间。数据库和后台工作使用 IO / Default dispatcher，界面操作显式回主线程。
+- AlarmManager 每次计算下一次本地日历时间，支持精确 / 非精确提醒、重启 / 更新 / 时间时区变化后的重排及发送日期去重；汇总今日与七天未完成数量，七天为空不通知。普通同步及因息屏延迟送达的跨日刷新保留当天尚未送达的提醒，不误移到明天；旧空间 / 旧日期 / 旧时间的排程拒绝。Glance 组件按日期展示七天清单、项目颜色和最后同步时间，支持刷新、滚动与尺寸调整。
+- 增加根 `android:setup / build / test / check / assetlinks` Bun 入口。工具、临时目录、Gradle 缓存和私有签名均限制在项目内 `.android-tools/` 并忽略。最终工具链为 Corretto **21.0.9.10.1**（API 36 Robolectric 需要 Java 21；应用字节码仍为 Java 17）、Gradle **8.13**、AGP **8.13.2**、Kotlin **2.2.21**、Android 36 / Build Tools 36.0.0、命令行工具 19.0；下载摘要固定，Gradle 镜像仍校验官方 SHA-256。保留 Bun 1.3.14 和现有 `bun.lock`，新增原生 Gradle 依赖锁及 Room schema。
+- 按当前 APK 签名生成 `apps/web/public/.well-known/assetlinks.json`，仅公开包名及证书指纹；增加 `/android/oauth/callback` 的静态回退页，立即清除地址中的授权查询参数。只接管精确回跳路径，其他链接仍交浏览器。`apps/android/README.md` 包含控制台、部署、安装、签名备份及 HyperOS 操作说明，根 README 增加入口。
+
+已验证：
+
+- 初轮 14 项纯函数 / 网络测试通过，覆盖七天包含边界、完成 / 无日期排除、排序、闰年 / 跨年、夏令时、端点 / state 校验、元数据字段丢弃、授权错误 / HTML / 跳转不泄露令牌及流式响应大小限制。
+- 扩展 API 36 Robolectric 后，先识别 Java 17 不支持该 SDK，固定升级到 Java 21；用线程栈定位模拟主线程暂停时后台 / 快照读取等待主线程的问题，改为后台 dispatcher 和事务读取后专项通过。最终 **`bun run android:check --offline`：19/19（14 普通 + 5 Android 16 模拟运行）通过，lint 无错误，APK 构建成功**。后续仅修正延迟跨日刷新对当天排程的处理，最后合并「5 项 AndroidIntegrationTest + lint + APK」再次 **5/5 通过**；未重跑既有 Web 全量套件。lint 有固定依赖新版本、KTX 建议及低版本忽略的组件属性等非阻断提示。
+- 生成 Gradle 锁后捕获 Kotlin common 元数据模块在缓存解析中被重定向 / 消失导致普通构建失败；只排除该虚拟元数据模块的锁，实际 JVM stdlib 保持锁定，已验证普通离线构建 / 检查可直接复用锁，无需 `--write-locks`。
+- `AGENDA_TEST_PORT=18787 bun run test --project=api tests/deployment.spec.ts` **2/2 通过**，含 Nuxt 生产生成及单 Worker：原路由回退、隐藏目录 JSON 资源、精确回跳 URL 的静态 HTML 和不回显查询授权码。`bun run typecheck:tests` 与 `git diff --check` 通过。没有运行全量 API / 桌面手机回归。
+- APK 在 `apps/android/app/build/outputs/apk/debug/app-debug.apk`，已用 Android Build Tools apksigner 验证 v2 签名，其公有证书 SHA-256 与生成的 assetlinks 一致：`92:BA:C2:13:A4:F5:BE:C4:14:38:DF:97:A9:F0:C2:CF:ED:15:B8:59:AF:A2:4E:66:AD:E9:75:EC:36:51:62:85`。
+- `bun run bun install --frozen-lockfile --dry-run --ignore-scripts` 通过，确认新增原生目录不影响 Bun workspace / 冻结锁解析，`bun.lock` 未变化；下载缓存指定到项目内目录。最终已检查工作区和新增文件清单，签名私钥、SDK / Gradle / Kotlin 缓存及 APK 均被忽略，正式关联 JSON 不含私密凭据。
+- 实现初轮的 `wrangler whoami` 确认当前环境未登录 Cloudflare，当时匿名读取正式 OAuth 发现 / assetlinks 地址返回 Access 登录页；用户后续远程配置与新核验结果见上节。真实 OAuth 授权及 HyperOS 行为仍未验证。
+
+待完成 / 边界：
+
+- **远程接入已推进**：用户已发布关联文件并配置精确路径 Bypass，OAuth 发现端点也已可用。仍需确认精确回跳允许列表并完成真实手机登录 / 续期联调，详见上节；建议有效期为 15 分钟访问令牌 + 14 天 grant。代理环境没有 Cloudflare 账户登录，未代改策略或部署。
+- 配置完成后安装 APK，验证真实动态注册、浏览器回跳、token 续期 / 到期、实际 `/api/agenda` 同步，以及主力 HyperOS 设备的息屏 / 清理任务 / 重启 / 省电、自启动和组件显示、滚动、跳转。Android 16 目前只有 Robolectric 模拟运行验证，桌面组件布局尚未真机验证。
+- 当前 APK 为自用调试签名；私钥位于被忽略的 `.android-tools/android-user/debug.keystore`，应单独备份。更换正式签名时通过环境变量提供 JKS，并重新生成和部署关联文件；私钥和密码不得进入提交。APK 及构建缓存也被忽略。
+- 没有新增 D1 迁移或服务端业务变更。若旧业务迁移尚未上线，仍按前轮要求先远程迁移至 `0007` 后部署。后台同步与非精确提醒 / 跨日更新受系统调度影响，数据时效以同步时间为准；不能将周期同步当作实时同步。
+- 本轮未提交。后续只需按实际配置 / 改动复验对应专项，不重复既有 Web 全量套件。
+
 ## 本轮：重复事项与编辑修复全部提交交接（2026-10-04）
 
 已编写：

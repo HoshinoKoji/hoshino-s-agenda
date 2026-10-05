@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta name="robots" content="noindex">
+  <title>返回日迹安卓 App</title>
+  <script>
+    (() => {
+      // Keep only the code-flow result in this page's closure; remove it from browser history
+      // immediately. No storage, fetch, logs, password, verifier or access token is involved.
+      const incoming = new URLSearchParams(location.search)
+      history.replaceState(null, '', location.pathname)
+      const response = new URLSearchParams()
+      const state = incoming.getAll('state')
+      const codes = incoming.getAll('code')
+      const errors = incoming.getAll('error')
+      const validState = state.length === 1 && state[0].length > 0 && state[0].length <= 1024
+      const validCode = codes.length === 1 && codes[0].length > 0 && codes[0].length <= 8192 && errors.length === 0
+      const validError = errors.length === 1 && errors[0].length > 0 && errors[0].length <= 128 && codes.length === 0
+      if (validState && (validCode || validError)) {
+        response.set('state', state[0])
+        response.set(validCode ? 'code' : 'error', validCode ? codes[0] : errors[0])
+      }
+      addEventListener('DOMContentLoaded', () => {
+        const status = document.getElementById('status')
+        if (!response.has('state')) {
+          status.textContent = '没有可交接的本次登录结果，请回到 App 重新发起登录。刷新此页面不能恢复已清除的授权结果。'
+          return
+        }
+        const direct = document.getElementById('open-app')
+        const pinned = document.getElementById('open-app-intent')
+        direct.href = 'club.hoshino.agenda://oauth/callback?' + response
+        pinned.href = 'intent://oauth/callback?' + response + '#Intent;scheme=club.hoshino.agenda;package=club.hoshino.agenda;component=club.hoshino.agenda/.auth.OAuthLinkActivity;end'
+        direct.hidden = false
+        pinned.hidden = false
+        status.textContent = validCode ? '浏览器认证已完成。点击下方按钮，把本次结果交给已安装的日迹 App。' : '本次授权未完成。点击下方按钮，在 App 中查看结果。'
+      }, { once: true })
+    })()
+  </script>
+  <style>
+    body { margin: 0; padding: 32px 20px; background: #f8f6fc; color: #292431; font: 16px/1.7 system-ui, sans-serif; }
+    main { max-width: 520px; margin: 10vh auto; padding: 28px; background: white; border-radius: 20px; }
+    h1 { font-size: 24px; color: #51447c; }
+    a { color: #6b58b6; }
+    .open-app { display: inline-block; padding: 10px 18px; margin: 8px 0; border-radius: 10px; background: #6b58b6; color: white; text-decoration: none; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>请返回日迹安卓 App</h1>
+    <p id="status" role="status">正在准备返回应用…</p>
+    <a id="open-app" class="open-app" hidden>返回日迹 App</a>
+    <p><a id="open-app-intent" hidden>如果没有打开，尝试指定日迹 App</a></p>
+    <p>Firefox：在浏览器设置中，将「在应用中打开链接」设为询问或始终。出现打开外部应用的提示时，选择打开。</p>
+    <p>需要安装日迹 App 0.1.3 或更新版本。App 内的「回跳设置」可直接进入系统链接设置；手动按钮无需先找到该设置。</p>
+    <p>本页面只在内存中交接本次授权码和 state，不交换或持久保存令牌。请勿刷新页面后再交接。</p>
+    <a href="/">打开日迹网页版</a>
+  </main>
+</body>
+</html>

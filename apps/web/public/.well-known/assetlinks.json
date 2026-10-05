@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "club.hoshino.agenda",
+      "sha256_cert_fingerprints": [
+        "92:BA:C2:13:A4:F5:BE:C4:14:38:DF:97:A9:F0:C2:CF:ED:15:B8:59:AF:A2:4E:66:AD:E9:75:EC:36:51:62:85"
+      ]
+    }
+  }
+]

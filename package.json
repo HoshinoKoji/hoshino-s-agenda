@@ -16,6 +16,11 @@
     "test:toolchain": "node --test scripts/test.test.mjs",
     "test:install": "PLAYWRIGHT_BROWSERS_PATH=0 playwright install chromium",
     "test:deps": "playwright install-deps chromium",
+    "android:setup": "node scripts/android.mjs setup",
+    "android:build": "node scripts/android.mjs build",
+    "android:test": "node scripts/android.mjs test",
+    "android:check": "node scripts/android.mjs check",
+    "android:assetlinks": "node scripts/android.mjs assetlinks",
     "deploy": "bun run --filter @agenda/web generate && bun run --filter @agenda/api deploy",
     "deploy:api": "bun run deploy"
   },

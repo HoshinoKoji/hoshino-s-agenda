@@ -1,0 +1,10 @@
+{
+  "client_id": "00000000-0000-4000-8000-000000000001",
+  "redirect_uris": ["https://agenda.hoshino.club/android/oauth/callback"],
+  "client_name": "日迹 · Android",
+  "grant_types": ["authorization_code", "refresh_token"],
+  "response_types": ["code"],
+  "token_endpoint_auth_method": "none",
+  "registration_client_uri": "https://hoshinokoji.cloudflareaccess.com/cdn-cgi/access/oauth/registration",
+  "client_id_issued_at": 1791170834
+}
