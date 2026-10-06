@@ -7,6 +7,11 @@ const props = defineProps<{ projects: Project[]; entries: Entry[]; assets: Asset
 const showCompleted = defineModel<boolean>('showCompleted', { default: false })
 const dateFilter = defineModel<OverviewDateFilter>('dateFilter', { required: true })
 const titleSearch = defineModel<string>('titleSearch', { required: true })
+const sortOrder = defineModel<'asc' | 'desc'>('sortOrder', { required: true })
+const sortOptions = [
+  { label: '时间升序', value: 'asc' },
+  { label: '时间降序', value: 'desc' },
+]
 const hasSearch = computed(() => !!titleSearch.value.trim())
 const isFiltered = computed(() => dateFilter.value.type !== 'all' || hasSearch.value)
 const encryption = useEntryEncryption()
@@ -32,9 +37,10 @@ const groups = computed(() => {
     byProject.set(entry.projectId, list)
   }
   return props.projects.filter(project => !props.activeProject || project.id === props.activeProject).map(project => {
-    const entries = (byProject.get(project.id) || []).sort((a, b) =>
+    const direction = sortOrder.value === 'asc' ? 1 : -1
+    const entries = (byProject.get(project.id) || []).sort((a, b) => direction * (
       (a.date ?? '').localeCompare(b.date ?? '') ||
-      a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
+      a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)))
     return { project, entries, visibleEntries: entries.filter(entry => showCompleted.value || !entry.completed), remaining: entries.filter(entry => !entry.completed).length }
   })
 })
@@ -66,7 +72,22 @@ const emptyMessage = computed(() => {
         <button class="button secondary" :disabled="busy" @click="emit('createProject')"><AppIcon name="plus" :size="16" />项目</button>
       </div>
     </header>
-    <div class="overview-filters"><OverviewDateFilter v-model="dateFilter" /><OverviewTitleSearch v-model="titleSearch" /></div>
+    <div class="overview-filters">
+      <OverviewTitleSearch v-model="titleSearch" />
+      <OverviewDateFilter v-model="dateFilter" />
+      <USelect
+        v-model="sortOrder" :items="sortOptions" aria-label="总览时间排序" class="overview-sort" size="sm"
+        :content="{ align: 'end', collisionPadding: 12 }"
+        :ui="{
+          base: 'min-h-[38px] cursor-pointer rounded-lg bg-white text-xs',
+          content: 'rounded-lg bg-white ring-[#eeedf3] shadow-[0_8px_28px_#30273f14]',
+          item: 'cursor-pointer text-xs data-highlighted:not-data-disabled:text-primary data-highlighted:not-data-disabled:before:bg-[#fff4f8] data-[state=checked]:text-primary',
+          itemTrailingIcon: 'text-primary',
+        }"
+      >
+        <template #leading><AppIcon name="sort" :size="15" /></template>
+      </USelect>
+    </div>
     <div v-if="!groups.length" class="day-empty"><p v-if="loading">正在从云端取回你的记录…</p><template v-else><h3>(空)</h3><button class="text-button" :disabled="busy" @click="emit('createProject')">创建项目<AppIcon name="arrow" :size="15" /></button></template></div>
     <p v-if="groups.length && !visibleGroups.length" class="small-empty">{{ emptyMessage }}</p>
     <section v-for="group in visibleGroups" :key="group.project.id" class="overview-project" :aria-labelledby="`project-title-${group.project.id}`">

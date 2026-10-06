@@ -12,7 +12,7 @@ function clear() {
   <UInput
     ref="input" v-model="model" type="search" class="overview-title-search"
     aria-label="搜索事项标题" placeholder="搜索事项标题" autocomplete="off"
-    :ui="{ base: 'min-h-9 rounded-lg bg-white pe-9', trailing: 'pe-1' }"
+    :ui="{ base: 'min-h-[38px] rounded-lg bg-white pe-9', trailing: 'pe-1' }"
   >
     <template #leading><AppIcon name="search" :size="16" /></template>
     <template #trailing>

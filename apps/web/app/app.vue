@@ -23,6 +23,7 @@ const workspaceView = ref<'calendar' | 'overview' | 'assets'>('calendar')
 const showCompletedProjects = ref(false)
 const overviewDateFilter = ref<OverviewDateFilter>({ type: 'all' })
 const overviewTitleSearch = ref('')
+const overviewSortOrder = ref<'asc' | 'desc'>('asc')
 const month = ref(new Date(new Date().getFullYear(), new Date().getMonth(), 1, 12))
 const activeProject = ref('')
 const showAccount = ref(false)
@@ -87,6 +88,7 @@ function enterAccount(value: string) {
   showCompletedProjects.value = false
   overviewDateFilter.value = { type: 'all' }
   overviewTitleSearch.value = ''
+  overviewSortOrder.value = 'asc'
   showAccount.value = false
   showProjectOrder.value = false
   try { localStorage.setItem('agenda:email', normalized) } catch { /* Continue without remembering the email. */ }
@@ -253,7 +255,7 @@ function followReference(entry: Entry | undefined) {
         <div v-if="editorWindowError && !entryEditor" class="error-banner" role="alert"><span>{{ editorWindowError }}</span><button class="icon-button" aria-label="关闭编辑标签页提示" @click="editorWindow.cancel()"><AppIcon name="close" :size="16" /></button></div>
 
         <AssetLibrary v-if="workspaceView === 'assets'" :assets="data.assets" :entries="data.entries" :projects="data.projects" :email="email" :loading="loading" :busy="loading || saving" :upload="uploadAsset" :remove="deleteAsset" :rename="renameAsset" @follow="followReference" />
-        <ProjectOverview v-else-if="workspaceView === 'overview'" v-model:show-completed="showCompletedProjects" v-model:date-filter="overviewDateFilter" v-model:title-search="overviewTitleSearch" :projects="data.projects" :entries="data.entries" :assets="data.assets" :email="email" :active-project="activeProject" :busy="loading || saving" :loading="loading" :tab-opening="editorOpening" @add="addEntry(null, $event)" @create-project="projectEditor = {}" @edit-project="projectEditor = { project: $event }" @unlock-project="projectUnlock = $event" @edit="editEntry" @window="openEntryTab" @export="exportEntry" @copy="copyEntry" @toggle="toggleEntry" @follow="followReference" />
+        <ProjectOverview v-else-if="workspaceView === 'overview'" v-model:show-completed="showCompletedProjects" v-model:date-filter="overviewDateFilter" v-model:title-search="overviewTitleSearch" v-model:sort-order="overviewSortOrder" :projects="data.projects" :entries="data.entries" :assets="data.assets" :email="email" :active-project="activeProject" :busy="loading || saving" :loading="loading" :tab-opening="editorOpening" @add="addEntry(null, $event)" @create-project="projectEditor = {}" @edit-project="projectEditor = { project: $event }" @unlock-project="projectUnlock = $event" @edit="editEntry" @window="openEntryTab" @export="exportEntry" @copy="copyEntry" @toggle="toggleEntry" @follow="followReference" />
         <template v-else>
         <section class="calendar-card" :aria-busy="loading">
           <header class="calendar-toolbar">

@@ -203,6 +203,8 @@ button { transition: background .15s, color .15s; }
 .completion-toggle { display: grid; place-items: center; border: 1.5px solid #d7d1e1; width: 19px; height: 19px; border-radius: 6px; margin-top: 3px; flex-shrink: 0; padding: 0; }
 .completion-toggle.checked { border-color: #9eb4a3; color: white; background: #9eb4a3; }
 .entry-content { flex: 1; min-width: 0; }
+.entry-heading { display: flex; align-items: flex-start; gap: 12px; }
+.entry-heading-content { flex: 1; min-width: 0; }
 .entry-actions { display: flex; flex-shrink: 0; gap: 2px; }
 .recurrence-badge { display: inline-flex; align-items: center; gap: 4px; color: #8574b2; }
 .entry-title { padding: 0; text-align: left; line-height: 1.8; font-size: 13px; overflow-wrap: anywhere; }
@@ -265,11 +267,12 @@ button.entry-mention:hover { background: #f7d9e7; text-decoration: underline; }
 /* Project overview */
 .overview-toolbar, .overview-project-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .overview-toolbar { flex-wrap: wrap; margin-bottom: 20px; }
-.overview-filters { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
-.overview-date-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0; }
-.overview-title-search { flex: 1 1 220px; min-width: 0; max-width: 300px; }
+.overview-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 16px; }
+.overview-date-filter { display: flex; flex: 0 1 auto; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0; max-width: 100%; }
+.overview-title-search { flex: 1 1 220px; min-width: 0; max-width: 400px; }
 .overview-title-search input::-webkit-search-cancel-button { display: none; }
-.overview-date-range { color: var(--muted); font-size: 12px; }
+.overview-sort { flex: 0 0 auto; margin-left: auto; min-width: 128px; }
+.overview-date-range { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 .overview-date-reset { font-size: 11px; }
 .overview-date-popover { width: min(300px, calc(100vw - 24px)); max-height: min(calc(100dvh - 24px), var(--reka-popover-content-available-height, calc(100dvh - 24px))); overflow-y: auto; padding: 12px; }
 .overview-date-popover h3 { font-size: 13px; font-weight: 500; }
@@ -576,8 +579,10 @@ input[type='checkbox'] { accent-color: var(--primary); width: 16px; height: 16px
   .day-panel-heading .button { padding: 6px 8px; font-size: 10px; gap: 4px; }
   .day-empty { padding-inline: 0; }
   .entry-card { gap: 9px; }
-  .entry-actions { display: grid; grid-template-columns: repeat(2, 32px); align-self: flex-start; }
+  .entry-heading { gap: 9px; }
+  .entry-actions { display: grid; grid-template-columns: repeat(2, 32px); justify-items: end; align-self: flex-start; }
   .overview-project { padding: 17px 14px 2px; }
+  .overview-title-search { flex-basis: 100%; max-width: none; }
   .overview-project-title h3 { font-size: 13px; }
   .overview-actions { gap: 4px; }
   .asset-library-list .asset-library-card { grid-template-columns: 72px minmax(0, 1fr); }
