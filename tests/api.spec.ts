@@ -213,7 +213,8 @@ test('项目与事项 CRUD、跨项目/日期互相引用、两端级联清理',
   expect((await space.api.put(`/api/entries/${second}`, { data: { projectId: reading.id, title: '整理灵感', date: '2026-10-02', completed: false, references: [third] } })).ok()).toBeTruthy()
   expect((await space.api.delete(`/api/projects/${project.id}`)).status()).toBe(200)
   agenda = await space.agenda()
-  expect(agenda.projects).toEqual([reading])
+  const { encryptionRevision: _, ...readingContent } = reading
+  expect(agenda.projects.map(({ encryptionRevision, ...content }) => content)).toEqual([readingContent])
   expect(agenda.entries).toEqual([expect.objectContaining({ id: second, references: [] })])
 })
 

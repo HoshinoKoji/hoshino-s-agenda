@@ -96,7 +96,7 @@ export function useEntryUnlockTransfer(email: Ref<string>, entries: Ref<Entry[]>
       if (data && typeof data === 'object' && (data as Record<string, unknown>).type === 'unavailable') { close(); return }
       if (!requested || !matches(data, requested) || data.type !== 'key') return
       const entry = entries.value.find(item => item.id === entryId)
-      if (email.value !== account || !entry || JSON.stringify(entry.encryptedDescription) !== requested.fingerprint || encryption.get(entry)) {
+      if (email.value !== account || !entry || encryption.fingerprint(entry) !== requested.fingerprint || encryption.get(entry)) {
         close()
         return
       }
@@ -113,7 +113,7 @@ export function useEntryUnlockTransfer(email: Ref<string>, entries: Ref<Entry[]>
       const entry = entries.value.find(item => item.id === entryId)
       if (!entry) { if (requested) close(); return }
       if (!entry.encryptedDescription || encryption.get(entry)) { close(); return }
-      const fingerprint = JSON.stringify(entry.encryptedDescription)
+      const fingerprint = encryption.fingerprint(entry)
       if (requested) { if (fingerprint !== requested.fingerprint) close(); return }
       requested = { email: account, entryId, fingerprint }
       try { channel.postMessage({ ...requested, type: 'request' }) } catch { close() }

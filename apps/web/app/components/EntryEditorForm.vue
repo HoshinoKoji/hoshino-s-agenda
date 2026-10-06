@@ -3,7 +3,7 @@ import { DESCRIPTION_MAX_LENGTH, type Asset, type Entry, type EntryInput, type E
 import { expandRecurrence, RECURRENCE_LABELS, type RecurrenceAdjustment } from '../../../../shared/recurrence'
 import { descriptionReferences, legacyReferenceIds, MAX_ENTRY_REFERENCES, mentionIds } from '../../../../shared/mentions'
 import { dateKey } from '~/utils/dates'
-import { encryptDescription, encryptDescriptionWithKey, validateEncryptionPassword } from '../../../../shared/encryption'
+import { encryptDescription, encryptDescriptionWithKey, encryptProjectDescription, validateEncryptionPassword } from '../../../../shared/encryption'
 const props = defineProps<{
   entry?: Entry
   copySource?: Entry
@@ -41,6 +41,10 @@ const form = reactive<Omit<EntryInput, 'references' | 'date'> & { description: s
   projectId: seed?.projectId || props.projectId || props.projects[0]?.id || '',
   completed: props.entry?.completed || false,
 })
+const targetProject = computed(() => props.projects.find(project => project.id === form.projectId))
+const targetLocked = computed(() => !!targetProject.value?.encryption && !encryption.getProject(targetProject.value))
+const effectiveEncrypted = computed(() => !!targetProject.value?.encryption || encrypted.value)
+const requiresIndependentPassword = computed(() => !initialEncrypted || initialEncrypted.version === 2 || changingPassword.value)
 const selectedDate = computed<string | null>({
   get: () => undated.value ? null : form.date,
   set: value => { undated.value = value === null; if (value !== null) form.date = value },
@@ -104,6 +108,13 @@ const frequencyItems: { label: string; value: RecurrenceFrequency | '' }[] = [
 const scopeItems: { label: string; value: RecurrenceScope }[] = [
   { label: '仅本次', value: 'single' }, { label: '本次及以后', value: 'following' }, { label: '整个系列', value: 'all' },
 ]
+const rangeMembers = computed(() => props.entry?.recurrence && scope.value !== 'single'
+  ? props.entries.filter(entry => entry.recurrence?.seriesId === props.entry!.recurrence!.seriesId &&
+    (scope.value === 'all' || entry.recurrence.scheduledDate >= props.entry!.recurrence!.scheduledDate) && (!entry.recurrence.exception || entry.id === props.entry!.id)) : [])
+const rangeProjects = computed(() => form.projectId !== seed?.projectId ? [] : props.projects.filter(project => project.id !== form.projectId && rangeMembers.value.some(entry => entry.projectId === project.id)))
+const rangePasswordEntries = computed(() => targetProject.value?.encryption ? rangeProjects.value.filter(project => !project.encryption)
+  .map(project => rangeMembers.value.find(entry => entry.projectId === project.id && entry.encryptedDescription?.version === 1))
+  .filter((entry): entry is Entry => !!entry) : [])
 function snapshot() {
   return {
     title: form.title, description: locked.value ? '' : form.description, projectId: form.projectId,
@@ -112,6 +123,7 @@ function snapshot() {
     encrypted: encrypted.value, changingPassword: changingPassword.value,
     password: password.value, confirmPassword: confirmPassword.value,
     frequency: frequency.value, until: until.value, scope: scope.value,
+    projectEncryption: targetProject.value?.encryption,
   }
 }
 const baseline = ref(snapshot())
@@ -135,6 +147,11 @@ function unlocked() {
   baseline.value.references = [...references.value].sort()
 }
 watch(() => seed && encryption.description(seed), () => { if (locked.value) unlocked() })
+watch(() => seed?.encryptedDescription?.version === 2 ? encryption.description(seed) : undefined, value => {
+  if (seed?.encryptedDescription?.version === 2 && value === undefined && descriptionReady.value) {
+    form.description = ''; descriptionReady.value = false
+  }
+})
 watch([encrypted, changingPassword], () => {
   if (!encrypted.value || (initialEncrypted && !changingPassword.value)) {
     password.value = ''
@@ -165,11 +182,24 @@ async function save() {
   try {
     let encryptedDescription = locked.value ? initialEncrypted : null
     let key: CryptoKey | undefined
-    if (!props.entry && encrypted.value && creationSeal?.fingerprint === fingerprint) {
+    const target = targetProject.value
+    const savedDescription = seed ? encryption.description(seed) : ''
+    if (!target) throw new Error('所属项目不存在，请同步后重新打开')
+    if (locked.value && (initialEncrypted?.version === 2 ? target.id !== initialEncrypted.projectId : !!target.encryption)) {
+      throw new Error('跨项目转换前请先解锁原描述')
+    }
+    if (!props.entry && effectiveEncrypted.value && creationSeal?.fingerprint === fingerprint) {
       encryptedDescription = creationSeal.encryptedDescription
       key = creationSeal.key
+    } else if (target.encryption && !locked.value) {
+      const secret = encryption.getProject(target)
+      if (!secret) throw new Error('请先解锁目标项目，再保存描述')
+      key = secret.key
+      encryptedDescription = initialEncrypted?.version === 2 && initialEncrypted.projectId === target.id && initialEncrypted.keyId === target.encryption.keyId &&
+        description === savedDescription && !props.copySource ? initialEncrypted
+        : await encryptProjectDescription(description, key, target.id, target.encryption.keyId)
     } else if (encrypted.value && !locked.value) {
-      if (!initialEncrypted || changingPassword.value) {
+      if (requiresIndependentPassword.value) {
         validateEncryptionPassword(password.value)
         if (password.value !== confirmPassword.value) throw new Error('两次输入的加密密码不一致')
         const sealed = await encryptDescription(description, password.value)
@@ -179,18 +209,42 @@ async function save() {
         const secret = seed && encryption.get(seed)
         if (!secret) throw new Error('描述已重新锁定，请关闭编辑器后重新解锁')
         key = secret.key
+        if (initialEncrypted?.version !== 1) throw new Error('请设置独立加密密码')
         encryptedDescription = description === secret.description && !props.copySource ? initialEncrypted
           : await encryptDescriptionWithKey(description, key, initialEncrypted.salt)
       }
     }
+    const projectDescriptions: EntryInput['projectDescriptions'] = {}
+    const changingBody = JSON.stringify(encryptedDescription ?? null) !== JSON.stringify(initialEncrypted ?? null) || (!encryptedDescription && description !== savedDescription)
+    if (!locked.value && (changingBody || form.projectId !== seed?.projectId) && rangeMembers.value.length) {
+      const ids = new Set(rangeMembers.value.map(entry => form.projectId !== seed?.projectId ? form.projectId : entry.projectId))
+      for (const id of ids) {
+        const project = props.projects.find(item => item.id === id)!
+        if (id === target.id) { projectDescriptions[id] = { description: encryptedDescription ? '' : description, encryptedDescription: encryptedDescription ?? null }; continue }
+        if (project.encryption) {
+          const secret = encryption.getProject(project)
+          if (!secret) throw new Error(`请先解锁项目「${project.name}」，再批量修改描述`)
+          projectDescriptions[id] = { description: '', encryptedDescription: await encryptProjectDescription(description, secret.key, id, project.encryption.keyId) }
+        } else if (target.encryption) {
+          const source = rangePasswordEntries.value.find(entry => entry.projectId === id)
+          const secret = source && encryption.get(source)
+          if (source?.encryptedDescription?.version === 1) {
+            if (!secret) throw new Error(`请先解锁「${source.title}」的独立描述，再批量修改`)
+            projectDescriptions[id] = { description: '', encryptedDescription: await encryptDescriptionWithKey(description, secret.key, source.encryptedDescription.salt) }
+          } else projectDescriptions[id] = { description, encryptedDescription: null }
+        } else projectDescriptions[id] = { description: encryptedDescription ? '' : description, encryptedDescription: encryptedDescription ?? null }
+      }
+    }
     // Preserve the exact ciphertext across an ambiguous creation retry (new IVs
     // would make the server's stable request ID appear to contain different data).
-    if (!props.entry && encrypted.value) creationSeal = { fingerprint, encryptedDescription, key }
+    if (!props.entry && effectiveEncrypted.value) creationSeal = { fingerprint, encryptedDescription, key }
+    if (key && target.encryption && encryption.getProject(target)?.key !== key) throw new Error('项目已重新锁定，请重新解锁后保存')
     if (disposed || !retention.isCurrent()) throw new Error('事项或空间已变化，请重新打开后保存')
     const snapshot = encryptedDescription && key ? { encryptedDescription, description, key } : undefined
     await props.submit({ ...form, description: encryptedDescription ? '' : description,
       encryptedDescription: encryptedDescription ?? null, date: undated.value ? null : form.date,
       references: [...references.value], assetIds: [...assetIds.value],
+      ...(Object.keys(projectDescriptions).length ? { projectDescriptions } : {}),
       ...(!props.entry ? { requestId } : {}),
       ...(!singleInstance.value ? { recurrence: recurrence.value, acknowledgeAdjustments } : {}),
       ...(props.entry?.recurrence ? { scope: scope.value, seriesVersion: props.entry.recurrence.version } : {}) }, props.entry?.id,
@@ -246,20 +300,26 @@ async function remove() {
           <p v-if="entry?.recurrence && scope !== 'single'" class="field-help">批量编辑保留各次完成状态与其他单次例外；更改规则时，不再符合排期的已完成或单次调整记录会保留为独立事项。</p>
         </section>
         <section class="description-security" aria-label="描述加密设置">
-          <label class="checkbox-label"><input v-model="encrypted" type="checkbox" :disabled="locked">加密描述</label>
+          <template v-if="targetProject?.encryption"><p class="field-help">此项目的描述统一使用项目口令加密。</p><ProjectUnlock v-if="!locked || initialEncrypted?.version !== 2 || initialEncrypted.projectId !== targetProject.id" :project="targetProject" /></template>
+          <label v-else class="checkbox-label"><input v-model="encrypted" type="checkbox" :disabled="locked">加密描述</label>
           <p class="field-help">仅加密描述正文；标题、项目、日期、状态、引用关系和附件仍可见。密码和解密内容仅留在当前页面内存中。</p>
-          <template v-if="!locked && encrypted">
-            <button v-if="initialEncrypted" type="button" class="text-button" :aria-expanded="changingPassword" @click="changingPassword = !changingPassword">{{ changingPassword ? '取消更改密码' : '更改加密密码' }}</button>
-            <div v-if="!initialEncrypted || changingPassword" class="field-row encryption-passwords">
+          <template v-if="!locked && encrypted && !targetProject?.encryption">
+            <button v-if="initialEncrypted?.version === 1" type="button" class="text-button" :aria-expanded="changingPassword" @click="changingPassword = !changingPassword">{{ changingPassword ? '取消更改密码' : '更改加密密码' }}</button>
+            <div v-if="requiresIndependentPassword" class="field-row encryption-passwords">
               <label class="field">加密密码<input v-model="password" type="password" autocomplete="new-password" maxlength="256" placeholder="8–256 个字符"></label>
               <label class="field">确认加密密码<input v-model="confirmPassword" type="password" autocomplete="new-password" maxlength="256"></label>
             </div>
-            <p v-if="!initialEncrypted || changingPassword" class="field-help">请记住此事项的独立密码，忘记后无法恢复描述。成功保存并同步后保持解锁；刷新、切换邮箱或主动锁定后需重新输入口令。</p>
+            <p v-if="requiresIndependentPassword" class="field-help">请记住此事项的独立密码，忘记后无法恢复描述。成功保存并同步后保持解锁；刷新、切换邮箱或主动锁定后需重新输入口令。</p>
           </template>
           <EntryUnlock v-if="locked && seed" :entry="seed" @unlocked="unlocked" />
           <p v-if="locked" class="field-help">可直接修改其他字段，原密文和引用会保留；修改描述、更改密码或取消加密前请先解锁。</p>
         </section>
-        <EntryDescriptionEditor v-if="!locked" :model-value="form.description" :entries="entries" :projects="projects" :references="references" :self-id="entry?.id" :disabled="busy" @update:model-value="updateDescription" />
+        <section v-if="rangeProjects.some(project => project.encryption) || rangePasswordEntries.length" class="description-security" aria-label="批量修改涉及的项目">
+          <p class="field-help">批量修改正文时，请解锁以下项目或独立描述；仅修改其他字段时可保留原密文。</p>
+          <ProjectUnlock v-for="project in rangeProjects.filter(item => item.encryption)" :key="project.id" :project="project" />
+          <EntryUnlock v-for="entry in rangePasswordEntries" :key="entry.id" :entry="entry" />
+        </section>
+        <EntryDescriptionEditor v-if="!locked && !targetLocked" :model-value="form.description" :entries="entries" :projects="projects" :references="references" :self-id="entry?.id" :disabled="busy" @update:model-value="updateDescription" />
         <section class="entry-assets-section" aria-label="事项附件">
           <div class="section-label"><span><AppIcon name="file" :size="16" />附件 · {{ assetIds.length }} / 50</span></div>
           <div v-if="selectedAssets.length" class="entry-asset-chips"><div v-for="asset in selectedAssets" :key="asset.id" class="entry-asset-chip"><AssetImage v-if="asset.image" :asset="asset" :email="email" /><AppIcon v-else name="file" :size="18" /><span>{{ asset.name }}</span><button type="button" class="icon-button" :aria-label="`移除附件 ${asset.name}`" @click="assetIds = assetIds.filter(id => id !== asset.id)"><AppIcon name="close" :size="14" /></button></div></div>

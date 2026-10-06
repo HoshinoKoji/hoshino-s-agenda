@@ -50,7 +50,7 @@ class AgendaRulesTest {
     }
 
     @Test fun decodeDropsDescriptionEncryptionAndAssetContentFromLocalModel() {
-        val payload = AgendaRules.decode("""{"projects":[{"id":"p","name":"项目","color":"#123456"}],"entries":[{"id":"e","projectId":"p","date":null,"title":"标题","completed":false,"createdAt":"2026-01-01","description":"private","encryptedDescription":{"ciphertext":"secret"},"assetIds":["asset"]}],"assets":[{"name":"private"}]}""")
+        val payload = AgendaRules.decode("""{"projects":[{"id":"p","name":"项目","color":"#123456","encryptionRevision":2,"encryption":{"version":1,"keyId":"project-key","salt":"private","iv":"private","wrappedKey":"secret"}}],"entries":[{"id":"e","projectId":"p","date":null,"title":"标题","completed":false,"createdAt":"2026-01-01","description":"private","encryptedDescription":{"version":2,"projectId":"p","keyId":"project-key","iv":"private","ciphertext":"secret"},"assetIds":["asset"]}],"assets":[{"name":"private"}]}""")
         assertEquals("标题", payload.entries.single().title)
         assertFalse(payload.toString().contains("private"))
         assertFalse(payload.toString().contains("secret"))

@@ -1,10 +1,11 @@
 <script setup lang="ts">
-const props = defineProps<{ name: string; disabled: boolean; first?: boolean; last?: boolean }>()
-const emit = defineEmits<{ overview: []; edit: []; up: []; down: [] }>()
+const props = defineProps<{ name: string; disabled: boolean; first?: boolean; last?: boolean; encrypted?: boolean; unlocked?: boolean }>()
+const emit = defineEmits<{ overview: []; edit: []; up: []; down: []; unlock: []; lock: [] }>()
 const editing = ref(false)
 const items = computed(() => [
   { label: '转到总览', action: 'overview', onSelect: () => emit('overview') },
   { label: '编辑', action: 'edit', onSelect: () => { editing.value = true; emit('edit') } },
+  ...(props.encrypted ? [{ label: props.unlocked ? '重新锁定项目' : '解锁项目描述', action: 'lock', onSelect: () => { editing.value = true; props.unlocked ? emit('lock') : emit('unlock') } }] : []),
   { label: '上移', action: 'up', disabled: props.first || props.disabled, onSelect: () => emit('up') },
   { label: '下移', action: 'down', disabled: props.last || props.disabled, onSelect: () => emit('down') },
 ])
@@ -27,6 +28,6 @@ function closeAutoFocus(event: Event) {
     <button class="project-menu-trigger icon-button" :aria-label="`项目操作 ${name}`" :disabled="disabled">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="19" cy="12" r="1.6" /></svg>
     </button>
-    <template #item-leading="{ item }"><span v-if="item.action === 'up' || item.action === 'down'" class="project-move-icon" aria-hidden="true">{{ item.action === 'up' ? '↑' : '↓' }}</span><AppIcon v-else :name="item.action === 'overview' ? 'grid' : 'edit'" :size="16" class="text-[#98919f] group-data-highlighted:text-primary" /></template>
+    <template #item-leading="{ item }"><span v-if="item.action === 'up' || item.action === 'down'" class="project-move-icon" aria-hidden="true">{{ item.action === 'up' ? '↑' : '↓' }}</span><AppIcon v-else :name="item.action === 'overview' ? 'grid' : item.action === 'lock' ? 'lock' : 'edit'" :size="16" class="text-[#98919f] group-data-highlighted:text-primary" /></template>
   </UDropdownMenu>
 </template>

@@ -13,7 +13,8 @@ export default defineConfig({
   workers: 1,
   forbidOnly: !!process.env.CI,
   retries: 0,
-  globalTimeout: 300_000,
+  // The complete API + two-browser suite includes expensive Web Crypto flows.
+  globalTimeout: 600_000,
   reporter: [['list'], ['html', { open: 'never' }]],
   use: {
     baseURL: dev ? 'http://127.0.0.1:3000' : apiURL,
@@ -26,8 +27,8 @@ export default defineConfig({
   },
   projects: [
     { name: 'api', testMatch: /(?:api|mentions|deployment|recurrence)\.spec\.ts/ },
-    { name: 'desktop', testMatch: ['web.spec.ts', 'android-callback.spec.ts'], use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 1000 } } },
-    { name: 'mobile', testMatch: ['web.spec.ts', 'android-callback.spec.ts'], use: { ...devices['Pixel 7'], viewport: { width: 390, height: 844 } } },
+    { name: 'desktop', testMatch: ['web.spec.ts', 'project-encryption-web.spec.ts', 'android-callback.spec.ts'], use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 1000 } } },
+    { name: 'mobile', testMatch: ['web.spec.ts', 'project-encryption-web.spec.ts', 'android-callback.spec.ts'], use: { ...devices['Pixel 7'], viewport: { width: 390, height: 844 } } },
   ],
   webServer: dev ? [
     {

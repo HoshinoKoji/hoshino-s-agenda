@@ -233,8 +233,10 @@ button { transition: background .15s, color .15s; }
 .description-unlock-actions { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; margin-top: 10px; }
 .description-unlock-actions .field { flex: 1 1 140px; min-width: 0; margin: 0; }
 .description-unlock-actions .button { min-height: 43px; }
+.description-unlock > .field-help { margin-top: 10px; }
 .description-security { margin-bottom: 20px; }
 .description-security > .field-help { margin-top: 8px; }
+.project-encryption-pending h4 { margin: 14px 0 0; font-size: 13px; overflow-wrap: anywhere; }
 .encryption-passwords { margin-top: 12px; }
 .encryption-passwords .field { min-width: 0; margin-bottom: 8px; }
 .description-toggle { display: block; margin-top: 4px; padding: 2px 0; border: 0; background: transparent; color: var(--primary); font-size: 12px; cursor: pointer; }

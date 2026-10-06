@@ -6,11 +6,30 @@ export const DESCRIPTION_MAX_LENGTH = 20_000
 // Includes escaped descriptions, Base64 ciphertext and other JSON fields.
 export const JSON_BODY_MAX_BYTES = 256 * 1024
 
-export interface EncryptedDescription {
+export interface PasswordEncryptedDescription {
   version: 1
   salt: string
   iv: string
   ciphertext: string
+}
+
+export interface ProjectEncryptedDescription {
+  version: 2
+  projectId: string
+  keyId: string
+  iv: string
+  ciphertext: string
+  salt?: never
+}
+
+export type EncryptedDescription = PasswordEncryptedDescription | ProjectEncryptedDescription
+
+export interface ProjectEncryption {
+  version: 1
+  keyId: string
+  salt: string
+  iv: string
+  wrappedKey: string
 }
 
 export interface Project {
@@ -18,6 +37,8 @@ export interface Project {
   name: string
   color: string
   createdAt: string
+  encryption?: ProjectEncryption
+  encryptionRevision?: number
 }
 
 export type RecurrenceFrequency = 'daily' | 'weekdays' | 'weekly' | 'monthly' | 'yearly'
@@ -80,6 +101,21 @@ export interface Asset {
 export interface ProjectInput {
   name: string
   color: string
+  requestId?: string
+  encryption?: ProjectEncryption
+}
+
+export interface ProjectEncryptionChange {
+  requestId: string
+  expectedRevision: number
+  encryption: ProjectEncryption | null
+  rewrap?: boolean
+}
+
+export interface ProjectDescriptionChange {
+  id: string
+  description: string
+  encryptedDescription: EncryptedDescription | null
 }
 
 export interface EntryInput {
@@ -100,4 +136,6 @@ export interface EntryInput {
   acknowledgeAdjustments?: boolean
   // A stable creation ID makes retrying an acknowledged/ambiguous POST idempotent.
   requestId?: string
+  // A recurring range can span projects with different description keys.
+  projectDescriptions?: Record<string, Omit<ProjectDescriptionChange, 'id'>>
 }

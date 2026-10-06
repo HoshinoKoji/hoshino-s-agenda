@@ -8,6 +8,7 @@ const password = ref('')
 const busy = ref(false)
 const error = ref('')
 const id = useId()
+const project = computed(() => encryption.projectFor(props.entry))
 let disposed = false
 onUnmounted(() => { disposed = true; password.value = '' })
 async function unlock() {
@@ -25,7 +26,8 @@ async function unlock() {
 </script>
 
 <template>
-  <div class="description-unlock">
+  <ProjectUnlock v-if="entry.encryptedDescription?.version === 2 && project" :project="project" @unlocked="emit('unlocked')" />
+  <div v-else class="description-unlock">
     <p class="description-lock-label"><AppIcon name="lock" :size="15" />描述已加密</p>
     <div class="description-unlock-actions">
       <label class="field" :for="id">解锁密码<input :id="id" v-model="password" type="password" autocomplete="off" maxlength="256" :disabled="busy" @keydown.enter.prevent="unlock"></label>

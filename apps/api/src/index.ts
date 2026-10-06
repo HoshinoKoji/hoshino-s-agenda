@@ -6,6 +6,9 @@ import { accounts, assetDeletions, assets, entries, entryAssets, entryReferences
 import { HttpError, fail } from './errors'
 import { deleteProjectWithSeries, patchRecurring, publicEntry, removeRecurring, saveRecurring } from './recurrence'
 import { expandRecurrence } from '../../../shared/recurrence'
+import { isProjectEncryption } from '../../../shared/projectEncryption'
+import { validEncryptionId } from '../../../shared/encryption'
+import { projectEncryptionRoute, publicProject, validateProjectDescription } from './project-encryption'
 
 interface Env {
   DB: D1Database
@@ -85,6 +88,8 @@ function getEmail(request: Request) {
 
 async function body(request: Request): Promise<Record<string, unknown>> {
   if (!request.headers.get('Content-Type')?.includes('application/json')) fail(415, '请使用 JSON 请求')
+  const length = request.headers.get('Content-Length')
+  if (length && /^\d+$/.test(length) && Number(length) > JSON_BODY_MAX_BYTES) fail(413, '请求内容过大')
   // Bound the actual stream as well as Content-Length (which clients can omit).
   const reader = request.body?.getReader()
   if (!reader) fail(400, '请求内容不能为空')
@@ -121,7 +126,11 @@ function text(value: unknown, label: string, max: number) {
 function projectInput(value: Record<string, unknown>): ProjectInput {
   const name = text(value.name, '项目名称', 64)
   if (typeof value.color !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(value.color)) fail(400, '请选择有效的 RGB 项目颜色')
-  return { name, color: (value.color as string).toUpperCase() }
+  if (value.requestId !== undefined && !validEncryptionId(value.requestId)) fail(400, '创建标识无效')
+  if (value.encryption !== undefined && !isProjectEncryption(value.encryption)) fail(400, '项目加密格式无效')
+  return { name, color: (value.color as string).toUpperCase(),
+    ...(value.requestId !== undefined ? { requestId: value.requestId as string } : {}),
+    ...(value.encryption !== undefined ? { encryption: value.encryption } : {}) }
 }
 
 function entryDate(value: unknown): string | null {
@@ -180,7 +189,7 @@ async function route(request: Request, env: Env): Promise<Response> {
 
   if (path === '/api/agenda' && method === 'GET') {
     const [projectRows, entryRows, referenceRows, assetRows, attachmentRows, seriesRows] = await db.batch([
-      db.select({ id: projects.id, name: projects.name, color: projects.color, createdAt: projects.createdAt })
+      db.select()
         .from(projects).where(eq(projects.ownerEmail, email)).orderBy(projects.sortOrder, projects.createdAt, projects.id),
       db.select({
         id: entries.id, projectId: entries.projectId, date: entries.date, title: entries.title,
@@ -209,7 +218,7 @@ async function route(request: Request, env: Env): Promise<Response> {
     }
     const seriesMap = new Map(seriesRows.map(series => [series.id, series]))
     return json({
-      projects: projectRows,
+      projects: projectRows.map(publicProject),
       entries: entryRows.map(({ encryptedDescription, seriesId, scheduledDate, exception, ...row }) => {
         const series = seriesId ? seriesMap.get(seriesId) : undefined
         return { ...row, ...(encryptedDescription ? { encryptedDescription } : {}),
@@ -316,14 +325,25 @@ async function route(request: Request, env: Env): Promise<Response> {
 
   if (path === '/api/projects' && method === 'POST') {
     const data = projectInput(await body(request))
+    const id = data.requestId || crypto.randomUUID()
+    const previous = await db.select().from(projects).where(eq(projects.id, id)).get()
+    if (previous) {
+      if (previous.ownerEmail !== email || previous.name !== data.name || previous.color !== data.color ||
+        JSON.stringify(previous.encryption) !== JSON.stringify(data.encryption ?? null)) fail(409, '创建标识已使用')
+      return json(publicProject(previous), 201)
+    }
     const last = await db.select({ value: max(projects.sortOrder) }).from(projects).where(eq(projects.ownerEmail, email)).get()
-    const project = { id: crypto.randomUUID(), ...data, createdAt: new Date().toISOString() }
+    const project = { id, name: data.name, color: data.color, encryption: data.encryption ?? null, createdAt: new Date().toISOString() }
     await db.batch([
       db.insert(accounts).values({ email }).onConflictDoNothing({ target: accounts.email }),
       db.insert(projects).values({ ...project, ownerEmail: email, sortOrder: (last?.value ?? -1) + 1 }),
     ])
-    return json(project, 201)
+    return json({ ...project, encryption: undefined, ...(data.encryption ? { encryption: data.encryption } : {}), encryptionRevision: 0 }, 201)
   }
+
+  const encryptionMatch = path.match(/^\/api\/projects\/([\w-]+)\/encryption(?:\/([\w-]+)(?:\/(chunks|commit))?)?$/)
+  if (encryptionMatch) return json(await projectEncryptionRoute(db, email, encryptionMatch[1]!, encryptionMatch[2], encryptionMatch[3], method,
+    method === 'DELETE' ? {} : await body(request)))
 
   if (path === '/api/projects/order' && method === 'PUT') {
     const data = await body(request)
@@ -349,7 +369,8 @@ async function route(request: Request, env: Env): Promise<Response> {
       await deleteProjectWithSeries(db, email, id)
     } else {
       const data = projectInput(await body(request))
-      await db.update(projects).set(data).where(and(eq(projects.id, id), eq(projects.ownerEmail, email)))
+      if (data.encryption !== undefined) fail(400, '请使用项目描述转换接口修改加密设置')
+      await db.update(projects).set({ name: data.name, color: data.color }).where(and(eq(projects.id, id), eq(projects.ownerEmail, email)))
     }
     return json({ ok: true })
   }
@@ -366,7 +387,9 @@ async function route(request: Request, env: Env): Promise<Response> {
       fail(409, '此事项的描述已加密，请使用支持加密的客户端并明确提交加密字段')
     }
     const data = entryInput(input, id)
-    await ensureOwned(db, projects, data.projectId, email)
+    const project = await db.select().from(projects).where(and(eq(projects.id, data.projectId), eq(projects.ownerEmail, email))).get()
+    if (!project) fail(404, '项目不存在')
+    validateProjectDescription(project.id, project.encryption, data.description, data.encryptedDescription)
     if (data.references.length) {
       const row = await db.select({ count: count() }).from(entries)
         .where(and(eq(entries.ownerEmail, email), inArray(entries.id, data.references))).get()
@@ -460,6 +483,9 @@ export default {
     try { response = await route(request, env) }
     catch (error) {
       if (error instanceof HttpError) response = json({ error: error.message }, error.status)
+      else if (/project (?:encryption mismatch|conversion)/.test(String((error as { cause?: unknown }).cause ?? error))) {
+        response = json({ error: '项目加密设置或事项已变化，或描述转换尚未完成，请同步后重试' }, 409)
+      }
       else {
         console.error('Agenda request failed', error)
         response = json({ error: '暂时无法访问数据，请稍后重试' }, 500)

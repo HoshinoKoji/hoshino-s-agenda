@@ -1,4 +1,5 @@
-import type { AgendaData, Asset, Entry, EntryInput, EntryRemoveOptions, EntrySaveResult, ProjectInput } from '../../../../shared/types'
+import type { AgendaData, Asset, Entry, EntryInput, EntryRemoveOptions, EntrySaveResult, Project, ProjectDescriptionChange, ProjectEncryptionChange, ProjectInput } from '../../../../shared/types'
+import { JSON_BODY_MAX_BYTES } from '../../../../shared/types'
 
 export function useAgenda(email: Ref<string>) {
   const data = ref<AgendaData>({ projects: [], entries: [], assets: [] })
@@ -53,14 +54,14 @@ export function useAgenda(email: Ref<string>) {
     if (email.value) void refresh()
   })
 
-  async function mutate<T = void>(path: string, method: string, body?: unknown, onSaved?: (result: T) => void) {
+  async function mutate<T = void>(path: string, method: string, body?: unknown, onSaved?: (result: T) => void, operation?: (account: string) => Promise<T>) {
     if (saving.value) throw new Error('正在保存，请稍候')
     saving.value = true
     error.value = ''
     const account = email.value
     const currentAccount = accountGeneration
     try {
-      const result = await request<T>(path, method, body, account)
+      const result = operation ? await operation(account) : await request<T>(path, method, body, account)
       windowSync.notify(account)
       if (currentAccount !== accountGeneration) return
       onSaved?.(result)
@@ -69,7 +70,33 @@ export function useAgenda(email: Ref<string>) {
     } finally { saving.value = false }
   }
 
-  const saveProject = (input: ProjectInput, id?: string) => mutate(id ? `/projects/${id}` : '/projects', id ? 'PUT' : 'POST', input)
+  const saveProject = async (input: ProjectInput, id?: string, onSaved?: (result: Project) => void) => { await mutate<Project>(id ? `/projects/${id}` : '/projects', id ? 'PUT' : 'POST', input, onSaved) }
+  const cancelProjectConversion = (projectId: string, id: string) => request(`/projects/${projectId}/encryption/${id}`, 'DELETE')
+  async function changeProjectEncryption(projectId: string, change: ProjectEncryptionChange, rows: ProjectDescriptionChange[], onSaved?: () => void) {
+    const path = `/projects/${projectId}/encryption`
+    const currentAccount = accountGeneration
+    await mutate(`${path}/${change.requestId}/commit`, 'POST', {}, onSaved, async account => {
+      const isCurrent = () => { if (currentAccount !== accountGeneration) throw new Error('空间已变化，请重新开始转换') }
+      isCurrent()
+      const job = await request<{ committed: boolean }>(path, 'POST', change, account)
+      if (!job.committed) {
+        const chunks: ProjectDescriptionChange[][] = []
+        let chunk: ProjectDescriptionChange[] = []
+        const bytes = (values: ProjectDescriptionChange[]) => new TextEncoder().encode(JSON.stringify({ entries: values })).byteLength
+        for (const row of rows) {
+          if (chunk.length && (chunk.length === 100 || bytes([...chunk, row]) > JSON_BODY_MAX_BYTES)) { chunks.push(chunk); chunk = [] }
+          chunk.push(row)
+          if (bytes(chunk) > JSON_BODY_MAX_BYTES) throw new Error('单个描述的转换内容过大')
+        }
+        if (chunk.length) chunks.push(chunk)
+        for (const entries of chunks) { isCurrent(); await request(`${path}/${change.requestId}/chunks`, 'PUT', { entries }, account) }
+      }
+      isCurrent()
+      return request<void>(`${path}/${change.requestId}/commit`, 'POST', {}, account)
+    })
+    if (currentAccount !== accountGeneration) throw new Error('空间已变化，请重新同步项目')
+    if (error.value) throw new Error(`项目描述已写入云端，但同步确认失败，请重试保存以确认。${error.value}`)
+  }
   const saveEntry = (input: EntryInput, id?: string, onSaved?: (result: EntrySaveResult) => void) =>
     mutate<EntrySaveResult>(id ? `/entries/${id}` : '/entries', id ? 'PUT' : 'POST', input, onSaved)
   const deleteProject = (id: string) => mutate(`/projects/${id}`, 'DELETE')
@@ -118,5 +145,5 @@ export function useAgenda(email: Ref<string>) {
     finally { orderingAccount.value = '' }
   }
 
-  return { data, loading, saving, reordering, error, syncedAt, refresh, saveProject, saveEntry, deleteProject, deleteEntry, deleteAsset, renameAsset, uploadAsset, toggleEntry, moveEntry, reorderProjects }
+  return { data, loading, saving, reordering, error, syncedAt, refresh, saveProject, changeProjectEncryption, cancelProjectConversion, saveEntry, deleteProject, deleteEntry, deleteAsset, renameAsset, uploadAsset, toggleEntry, moveEntry, reorderProjects }
 }

@@ -28,16 +28,18 @@ const activeProject = ref('')
 const showAccount = ref(false)
 const showProjectOrder = ref(false)
 const projectEditor = ref<{ project?: Project } | null>(null)
+const projectUnlock = ref<Project | null>(null)
+const unlockProject = computed(() => data.value.projects.find(project => project.id === projectUnlock.value?.id))
 const entryEditor = ref<{ entry?: Entry; copySource?: Entry; date: string | null; projectId: string } | null>(null)
-const { data, loading, saving, reordering, error, syncedAt, refresh, saveProject, saveEntry, deleteProject, deleteEntry, deleteAsset, renameAsset, uploadAsset, toggleEntry, moveEntry, reorderProjects } = useAgenda(email)
+const { data, loading, saving, reordering, error, syncedAt, refresh, saveProject, changeProjectEncryption, cancelProjectConversion, saveEntry, deleteProject, deleteEntry, deleteAsset, renameAsset, uploadAsset, toggleEntry, moveEntry, reorderProjects } = useAgenda(email)
 const agendaEntries = computed(() => data.value.entries)
-const encryption = provideEntryEncryption(email, agendaEntries)
+const encryption = provideEntryEncryption(email, agendaEntries, computed(() => data.value.projects))
 const printUnlock = usePrintUnlockTransfer(email, agendaEntries, encryption)
 const editUnlock = useEntryUnlockTransfer(email, agendaEntries, encryption, 'edit')
 const editorWindow = useEntryEditorWindow(email)
 const { opening: editorOpening, error: editorWindowError } = editorWindow
 let dialogTabPending = false
-watch(email, () => { entryEditor.value = null; projectEditor.value = null }, { flush: 'sync' })
+watch(email, () => { entryEditor.value = null; projectEditor.value = null; projectUnlock.value = null }, { flush: 'sync' })
 watch(entryEditor, editor => {
   if (!editor && dialogTabPending) { editorWindow.cancel(); dialogTabPending = false }
 })
@@ -239,7 +241,7 @@ function followReference(entry: Entry | undefined) {
   <div v-else class="app-shell">
     <aside class="sidebar">
       <a class="brand" href="/" aria-label="日迹首页"><span class="brand-mark"><AppIcon name="spark" :size="24" /></span><span>日迹<span class="brand-en">HOSHINO’S AGENDA</span></span></a>
-      <nav class="project-nav" aria-label="项目筛选"><button class="nav-item all-projects" :class="{ active: !activeProject }" :aria-pressed="!activeProject" @click="activeProject = ''"><AppIcon name="calendar" :size="19" /><span>全部项目</span><span class="count">{{ data.entries.length }}</span></button><div class="nav-heading"><span>我的项目</span><div class="project-heading-actions"><button class="icon-button" aria-label="编辑项目排序" title="编辑项目排序" :disabled="loading || saving || data.projects.length < 2" @click="showProjectOrder = true"><AppIcon name="sort" :size="17" /></button><button class="icon-button" aria-label="新建项目" :disabled="loading || saving" @click="projectEditor = {}"><AppIcon name="plus" :size="17" /></button></div></div><ProjectList :projects="data.projects" :active-project="activeProject" :counts="projectCounts" :busy="loading || saving" @select="activeProject = $event" @overview="activeProject = $event; workspaceView = 'overview'" @edit="projectEditor = { project: $event }" @reorder="reorderProjects" /></nav>
+      <nav class="project-nav" aria-label="项目筛选"><button class="nav-item all-projects" :class="{ active: !activeProject }" :aria-pressed="!activeProject" @click="activeProject = ''"><AppIcon name="calendar" :size="19" /><span>全部项目</span><span class="count">{{ data.entries.length }}</span></button><div class="nav-heading"><span>我的项目</span><div class="project-heading-actions"><button class="icon-button" aria-label="编辑项目排序" title="编辑项目排序" :disabled="loading || saving || data.projects.length < 2" @click="showProjectOrder = true"><AppIcon name="sort" :size="17" /></button><button class="icon-button" aria-label="新建项目" :disabled="loading || saving" @click="projectEditor = {}"><AppIcon name="plus" :size="17" /></button></div></div><ProjectList :projects="data.projects" :active-project="activeProject" :counts="projectCounts" :busy="loading || saving" @select="activeProject = $event" @overview="activeProject = $event; workspaceView = 'overview'" @edit="projectEditor = { project: $event }" @unlock="projectUnlock = $event" @reorder="reorderProjects" /></nav>
       <div v-if="reordering" class="project-order-status" role="status" aria-live="polite"><AppIcon name="refresh" :size="16" class="spinning" /><span><strong>正在调整项目顺序…</strong><small>正在保存并同步，请稍候</small></span></div>
       <div class="sidebar-bottom"><button class="account-button" :disabled="saving" @click="showAccount = true"><span class="avatar">{{ email[0]?.toUpperCase() }}</span><span class="account-label"><strong>我的空间</strong><small>{{ email }}</small></span><AppIcon name="chevronDown" :size="15" /></button></div>
     </aside>
@@ -251,7 +253,7 @@ function followReference(entry: Entry | undefined) {
         <div v-if="editorWindowError && !entryEditor" class="error-banner" role="alert"><span>{{ editorWindowError }}</span><button class="icon-button" aria-label="关闭编辑标签页提示" @click="editorWindow.cancel()"><AppIcon name="close" :size="16" /></button></div>
 
         <AssetLibrary v-if="workspaceView === 'assets'" :assets="data.assets" :entries="data.entries" :projects="data.projects" :email="email" :loading="loading" :busy="loading || saving" :upload="uploadAsset" :remove="deleteAsset" :rename="renameAsset" @follow="followReference" />
-        <ProjectOverview v-else-if="workspaceView === 'overview'" v-model:show-completed="showCompletedProjects" v-model:date-filter="overviewDateFilter" v-model:title-search="overviewTitleSearch" :projects="data.projects" :entries="data.entries" :assets="data.assets" :email="email" :active-project="activeProject" :busy="loading || saving" :loading="loading" :tab-opening="editorOpening" @add="addEntry(null, $event)" @create-project="projectEditor = {}" @edit-project="projectEditor = { project: $event }" @edit="editEntry" @window="openEntryTab" @export="exportEntry" @copy="copyEntry" @toggle="toggleEntry" @follow="followReference" />
+        <ProjectOverview v-else-if="workspaceView === 'overview'" v-model:show-completed="showCompletedProjects" v-model:date-filter="overviewDateFilter" v-model:title-search="overviewTitleSearch" :projects="data.projects" :entries="data.entries" :assets="data.assets" :email="email" :active-project="activeProject" :busy="loading || saving" :loading="loading" :tab-opening="editorOpening" @add="addEntry(null, $event)" @create-project="projectEditor = {}" @edit-project="projectEditor = { project: $event }" @unlock-project="projectUnlock = $event" @edit="editEntry" @window="openEntryTab" @export="exportEntry" @copy="copyEntry" @toggle="toggleEntry" @follow="followReference" />
         <template v-else>
         <section class="calendar-card" :aria-busy="loading">
           <header class="calendar-toolbar">
@@ -288,7 +290,8 @@ function followReference(entry: Entry | undefined) {
 
     <AppDialog v-if="showAccount" title="回到你的数据空间" @close="showAccount = false"><p class="account-description">输入邮箱，提取对应的项目和日历记录。</p><EmailForm :initial="email" @submit="enterAccount" /></AppDialog>
     <ProjectOrderEditor v-if="showProjectOrder" :projects="data.projects" :submit="reorderProjects" :error="error" @close="showProjectOrder = false" />
-    <ProjectEditor v-if="projectEditor" :project="projectEditor.project" :entry-count="projectEditor.project ? projectCounts.get(projectEditor.project.id) || 0 : 0" :submit="saveProject" :remove="deleteProject" @close="projectEditor = null" />
+    <AppDialog v-if="projectUnlock && unlockProject" title="解锁项目描述" @close="projectUnlock = null"><ProjectUnlock :project="unlockProject" @unlocked="projectUnlock = null" /></AppDialog>
+    <ProjectEditor v-if="projectEditor" :project="projectEditor.project" :entry-count="projectEditor.project ? projectCounts.get(projectEditor.project.id) || 0 : 0" :projects="data.projects" :entries="data.entries" :submit="saveProject" :change-encryption="changeProjectEncryption" :cancel-conversion="cancelProjectConversion" :remove="deleteProject" @close="projectEditor = null" />
     <EntryEditor v-if="entryEditor" :key="entryEditor.entry?.id || (entryEditor.copySource ? `copy-${entryEditor.copySource.id}` : 'new')" :entry="entryEditor.entry" :copy-source="entryEditor.copySource" :date="entryEditor.date" :project-id="entryEditor.projectId" :projects="data.projects" :entries="data.entries" :assets="data.assets" :email="email" :upload="uploadAsset" :submit="submitEntry" :remove="deleteEntry" :opening="editorOpening" :window-error="editorWindowError" @window="openEntryWindow" @export="exportEntry" @copy="copyEntry" @close="entryEditor = null" />
   </div>
   </UApp>

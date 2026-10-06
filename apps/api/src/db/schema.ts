@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { check, foreignKey, index, integer, primaryKey, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core'
-import type { EncryptedDescription, RecurrenceRule } from '../../../../shared/types'
+import type { EncryptedDescription, ProjectEncryption, RecurrenceRule } from '../../../../shared/types'
 
 export const accounts = sqliteTable('accounts', {
   email: text('email').primaryKey(),
@@ -14,6 +14,8 @@ export const projects = sqliteTable('projects', {
   color: text('color').notNull(),
   sortOrder: integer('sort_order').notNull().default(0),
   createdAt: text('created_at').notNull(),
+  encryption: text('encryption', { mode: 'json' }).$type<ProjectEncryption>(),
+  encryptionRevision: integer('encryption_revision').notNull().default(0),
 }, table => [
   unique().on(table.id, table.ownerEmail),
   index('projects_owner').on(table.ownerEmail),
@@ -76,6 +78,24 @@ export const entryReferences = sqliteTable('entry_references', {
   index('references_owner').on(table.ownerEmail),
   index('references_target').on(table.targetId),
 ])
+
+export const projectEncryptionJobs = sqliteTable('project_encryption_jobs', {
+  id: text('id').primaryKey(),
+  ownerEmail: text('owner_email').notNull(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  revision: integer('revision').notNull(),
+  encryption: text('encryption', { mode: 'json' }).$type<ProjectEncryption>(),
+  rewrap: integer('rewrap', { mode: 'boolean' }).notNull().default(false),
+  committed: integer('committed', { mode: 'boolean' }).notNull().default(false),
+  expiresAt: text('expires_at').notNull(),
+}, table => [foreignKey({ columns: [table.projectId, table.ownerEmail], foreignColumns: [projects.id, projects.ownerEmail] }).onDelete('cascade')])
+
+export const projectDescriptionChanges = sqliteTable('project_description_changes', {
+  jobId: text('job_id').notNull().references(() => projectEncryptionJobs.id, { onDelete: 'cascade' }),
+  entryId: text('entry_id').notNull().references(() => entries.id, { onDelete: 'cascade' }),
+  description: text('description').notNull(),
+  encryptedDescription: text('encrypted_description', { mode: 'json' }).$type<EncryptedDescription>(),
+}, table => [primaryKey({ columns: [table.jobId, table.entryId] })])
 
 export const assets = sqliteTable('assets', {
   id: text('id').primaryKey(),

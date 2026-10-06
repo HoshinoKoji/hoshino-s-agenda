@@ -33,7 +33,7 @@ try {
     if (process.env.AGENDA_TEST_DEV === '1') await checkPort(3000)
     const projects = args.flatMap((arg, index) => arg.startsWith('--project=') ? [arg.slice(10)] : arg === '--project' ? [args[index + 1]] : [])
     if (!projects.length || projects.some(project => project !== 'api')) await checkBrowser()
-    console.log('[test] 端口检查通过，启动 Playwright（全局时限 5 分钟）。')
+    console.log('[test] 端口检查通过，启动 Playwright。')
   }
   const child = spawn(process.execPath, [require.resolve('@playwright/test/cli'), 'test', ...args], {
     stdio: 'inherit',

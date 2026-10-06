@@ -1,10 +1,12 @@
 import { and, eq, inArray, notExists } from 'drizzle-orm'
 import type { BatchItem } from 'drizzle-orm/batch'
-import type { Entry, EntryInput, EntrySaveResult, RecurrenceScope } from '../../../shared/types'
+import { DESCRIPTION_MAX_LENGTH, type EncryptedDescription, type Entry, type EntryInput, type EntrySaveResult, type RecurrenceScope } from '../../../shared/types'
 import { expandRecurrence } from '../../../shared/recurrence'
 import type { Database } from './db'
 import { entries, entryAssets, entryReferences, entrySeries, projects, seriesMutations, seriesSkips } from './db/schema'
 import { fail, HttpError } from './errors'
+import { isEncryptedDescription } from '../../../shared/encryption'
+import { validateProjectDescription } from './project-encryption'
 
 type Row = typeof entries.$inferSelect
 type Input = EntryInput & { description: string; assetIds: string[] }
@@ -160,6 +162,22 @@ export async function saveRecurring(db: Database, email: string, id: string, cur
   const patch: Partial<Row> = { updatedAt: now }
   for (const field of ['title', 'projectId', 'description'] as const) if (input[field] !== saved[field]) patch[field] = input[field]
   if (!same(input.encryptedDescription ?? null, saved.encryptedDescription ?? null)) patch.encryptedDescription = input.encryptedDescription ?? null
+  const changingBody = patch.description !== undefined || patch.encryptedDescription !== undefined
+  const projectRows = await db.select().from(projects).where(eq(projects.ownerEmail, email))
+  const descriptionFor = (projectId: string) => {
+    const overrides = raw.projectDescriptions
+    if (overrides !== undefined && (!overrides || typeof overrides !== 'object' || Array.isArray(overrides))) fail(400, '项目描述列表格式无效')
+    const override = overrides ? (overrides as Record<string, unknown>)[projectId] : undefined
+    const body = override ?? (projectId === input.projectId ? { description: input.description, encryptedDescription: input.encryptedDescription ?? null } : undefined)
+    if (!body || typeof body !== 'object' || Array.isArray(body)) fail(409, '批量修改涉及其他项目，请解锁相关项目后重新保存')
+    const data = body as { description: unknown; encryptedDescription: unknown }
+    if (typeof data.description !== 'string' || data.description.length > DESCRIPTION_MAX_LENGTH ||
+      (data.encryptedDescription !== null && !isEncryptedDescription(data.encryptedDescription))) fail(400, '批量描述格式无效')
+    const project = projectRows.find(row => row.id === projectId)
+    if (!project) fail(404, '项目不存在')
+    validateProjectDescription(projectId, project.encryption, data.description, data.encryptedDescription)
+    return { description: data.description, encryptedDescription: data.encryptedDescription as EncryptedDescription | null }
+  }
   const changeRefs = !sameIds(input.references, saved.references)
   const changeAssets = !sameIds(input.assetIds, saved.assetIds)
   const expanded = raw.recurrence === null ? undefined : checkedRule(raw.recurrence === undefined ? { ...raw, recurrence: series.rule } : raw)
@@ -182,7 +200,10 @@ export async function saveRecurring(db: Database, email: string, id: string, cur
   for (const row of selected) {
     const keep = !changedRule || (expanded && wanted.has(row.scheduledDate!))
     if (!keep && expanded && !row.completed && !row.exception && row.id !== id) { deletedIds.push(row.id); continue }
-    const meta = row.exception && row.id !== id ? { updatedAt: now } : patch
+    const meta = row.exception && row.id !== id ? { updatedAt: now } : { ...patch }
+    if ((!row.exception || row.id === id) && (changingBody || (patch.projectId !== undefined && patch.projectId !== row.projectId))) {
+      Object.assign(meta, descriptionFor(patch.projectId ?? row.projectId))
+    }
     writes.push(db.update(entries).set({ ...meta, ...(row.id === id ? { completed: input.completed } : {}),
       ...(changedRule ? { seriesId: keep ? nextSeriesId : null, scheduledDate: keep ? row.scheduledDate : null, exception: keep ? row.exception : false } : {}) })
       .where(and(eq(entries.id, row.id), eq(entries.ownerEmail, email))))

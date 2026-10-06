@@ -9,10 +9,12 @@ const dateFilter = defineModel<OverviewDateFilter>('dateFilter', { required: tru
 const titleSearch = defineModel<string>('titleSearch', { required: true })
 const hasSearch = computed(() => !!titleSearch.value.trim())
 const isFiltered = computed(() => dateFilter.value.type !== 'all' || hasSearch.value)
+const encryption = useEntryEncryption()
 const emit = defineEmits<{
   add: [projectId: string]
   createProject: []
   editProject: [project: Project]
+  unlockProject: [project: Project]
   edit: [entry: Entry]
   window: [entry: Entry]
   export: [entry: Entry]
@@ -70,7 +72,7 @@ const emptyMessage = computed(() => {
     <section v-for="group in visibleGroups" :key="group.project.id" class="overview-project" :aria-labelledby="`project-title-${group.project.id}`">
       <header class="overview-project-heading">
         <div class="overview-project-title"><h3 :id="`project-title-${group.project.id}`"><i class="project-dot" :style="{ background: group.project.color }" />{{ group.project.name }}</h3><p>{{ group.entries.length }} 个事项，未完成 {{ group.remaining }} 个</p></div>
-        <div class="overview-actions"><button class="icon-button" :aria-label="`编辑项目 ${group.project.name}`" :disabled="busy" @click="emit('editProject', group.project)"><AppIcon name="edit" :size="16" /></button><button class="button secondary" :aria-label="`为 ${group.project.name} 添加事项`" :disabled="busy" @click="emit('add', group.project.id)"><AppIcon name="plus" :size="16" />事项</button></div>
+        <div class="overview-actions"><button v-if="group.project.encryption" class="icon-button" :aria-label="`${encryption.getProject(group.project) ? '重新锁定项目' : '解锁项目描述'} ${group.project.name}`" :title="encryption.getProject(group.project) ? '重新锁定项目' : '解锁项目描述'" :disabled="busy" @click="encryption.getProject(group.project) ? encryption.lockProject(group.project.id) : emit('unlockProject', group.project)"><AppIcon name="lock" :size="16" /></button><button class="icon-button" :aria-label="`编辑项目 ${group.project.name}`" :disabled="busy" @click="emit('editProject', group.project)"><AppIcon name="edit" :size="16" /></button><button class="button secondary" :aria-label="`为 ${group.project.name} 添加事项`" :disabled="busy" @click="emit('add', group.project.id)"><AppIcon name="plus" :size="16" />事项</button></div>
       </header>
       <EntryList v-if="group.visibleEntries.length" :entries="group.visibleEntries" :all-entries="entries" :projects="projects" :assets="assets" :email="email" :busy="busy" :tab-opening="tabOpening" show-date @edit="emit('edit', $event)" @window="emit('window', $event)" @export="emit('export', $event)" @copy="emit('copy', $event)" @toggle="emit('toggle', $event)" @follow="emit('follow', $event)" />
       <p v-else class="small-empty">暂无事项</p>
